@@ -18,22 +18,35 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
   final _phoneController = TextEditingController();
   final _amountController = TextEditingController();
   final _noteController = TextEditingController();
+  final _scrollController = ScrollController();
   String? _selectedName;
   bool _listExpanded = false;
+  int _visibleCount = 30;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     Future.microtask(() => ref.read(crmDebtsControllerProvider.notifier).load());
   }
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _nameController.dispose();
     _phoneController.dispose();
     _amountController.dispose();
     _noteController.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      setState(() {
+        _visibleCount += 30;
+      });
+    }
   }
 
   Future<void> _save() async {
@@ -67,7 +80,7 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
         .toList()
       ..sort();
     final filteredItems = _selectedName == null || _selectedName!.isEmpty
-        ? activeItems
+        ? activeItems.take(_visibleCount).toList()
         : activeItems.where((item) => item.fullName == _selectedName).toList();
     final totalsByName = <String, double>{};
     for (final item in activeItems) {
@@ -84,6 +97,7 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
 
     return Scaffold(
       body: ListView(
+        controller: _scrollController,
         padding: const EdgeInsets.all(16),
         children: [
           Text('Qarzdorlar', style: Theme.of(context).textTheme.titleLarge),

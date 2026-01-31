@@ -17,22 +17,35 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
   final _titleController = TextEditingController();
   final _amountController = TextEditingController();
   final _noteController = TextEditingController();
+  final _scrollController = ScrollController();
   String? _selectedTitle;
+  int _visibleCount = 30;
   bool _typesExpanded = false;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     Future.microtask(
         () => ref.read(crmExpensesControllerProvider.notifier).load());
   }
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _titleController.dispose();
     _amountController.dispose();
     _noteController.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      setState(() {
+        _visibleCount += 30;
+      });
+    }
   }
 
   Future<void> _save() async {
@@ -62,7 +75,7 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
       ..sort();
     final filteredItems = _selectedTitle == null ||
             _selectedTitle!.trim().isEmpty
-        ? state.items
+        ? state.items.take(_visibleCount).toList()
         : state.items
             .where((item) => item.title == _selectedTitle)
             .toList();
@@ -79,6 +92,7 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
 
     return Scaffold(
       body: ListView(
+        controller: _scrollController,
         padding: const EdgeInsets.all(16),
         children: [
           Text('Chiqimlar', style: Theme.of(context).textTheme.titleLarge),
