@@ -11,6 +11,7 @@ import '../ui/chart_card.dart';
 import '../ui/formatters.dart';
 import '../ui/section_header.dart';
 import '../ui/wallet_card_carousel.dart';
+import 'top_books_screen.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -234,7 +235,16 @@ class _TopBooksCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const Spacer(),
-              TextButton(onPressed: () {}, child: const Text('Hammasi')),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => CrmTopBooksScreen(items: items),
+                    ),
+                  );
+                },
+                child: const Text('Hammasi'),
+              ),
             ],
           ),
           const SizedBox(height: AppSpacing.md),

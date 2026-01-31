@@ -31,6 +31,12 @@ abstract class CrmRepository {
     String? note,
   });
 
+  Future<CrmDebt> updateDebtPaid({
+    required int id,
+    required String paidAmount,
+    required bool isPaid,
+  });
+
   Future<List<CrmExpense>> getExpenses();
 
   Future<CrmExpense> createExpense({

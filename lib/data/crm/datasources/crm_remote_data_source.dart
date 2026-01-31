@@ -91,6 +91,34 @@ class CrmRemoteDataSource {
     }
   }
 
+  Future<DebtModel> updateDebtPaid({
+    required int id,
+    required String paidAmount,
+    required bool isPaid,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        'crm/debts/pay/',
+        data: {
+          'debt_id': id,
+          'paid_amount': paidAmount,
+          'is_paid': isPaid ? '1' : '0',
+        },
+        options: Options(
+          contentType: Headers.formUrlEncodedContentType,
+          validateStatus: (status) => status != null && status < 400,
+        ),
+      );
+      return DebtModel.fromJson(response.data ?? {});
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      throw ApiException(
+        error.response?.statusMessage ?? 'Failed to update debt',
+        statusCode: status,
+      );
+    }
+  }
+
   Future<List<ExpenseModel>> getExpenses() async {
     try {
       final response = await _dio.get<List<dynamic>>('crm/expenses/');
@@ -119,7 +147,7 @@ class CrmRemoteDataSource {
         data: {
           'title': title,
           'amount': amount,
-          'spent_on': spentOn,
+          'spent_on': spentOn ?? '',
           'note': note ?? '',
         },
       );

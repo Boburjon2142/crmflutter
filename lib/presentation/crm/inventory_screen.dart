@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/catalog/entities/book.dart';
 import '../providers.dart';
+import '../ui/formatters.dart';
 
 class InventoryScreen extends ConsumerStatefulWidget {
   const InventoryScreen({super.key});
@@ -16,7 +17,6 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   TextEditingController? _bookController;
   FocusNode? _bookFocusNode;
   final _deltaController = TextEditingController();
-  final _noteController = TextEditingController();
 
   @override
   void initState() {
@@ -31,22 +31,24 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     _bookController?.dispose();
     _bookFocusNode?.dispose();
     _deltaController.dispose();
-    _noteController.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
-    final delta = int.tryParse(_deltaController.text.trim()) ?? 0;
+    final delta =
+        parseFormattedInt(_deltaController.text.trim(), allowNegative: true) ??
+            0;
     if (_selectedId == null || delta == 0) {
       return;
     }
     await ref.read(adjustInventoryUseCaseProvider).call(
           bookId: _selectedId!,
           delta: delta,
-          note: _noteController.text.trim(),
+          note: null,
         );
     _deltaController.clear();
-    _noteController.clear();
+    _selectedId = null;
+    _bookController?.clear();
     await ref.read(crmBooksControllerProvider(null).notifier).load();
   }
 
@@ -179,13 +181,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                     controller: _deltaController,
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(hintText: 'Masalan: -2'),
-                  ),
-                  const SizedBox(height: 12),
-                  Text('Izoh', style: Theme.of(context).textTheme.labelLarge),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _noteController,
-                    decoration: const InputDecoration(hintText: 'Tuzatish sababi'),
+                    inputFormatters: [
+                      ThousandsSeparatorInputFormatter(allowNegative: true),
+                    ],
                   ),
                   const SizedBox(height: 12),
                   FilledButton(
@@ -244,7 +242,7 @@ class _InventoryTable extends StatelessWidget {
                       flex: 3,
                       child: Text(book.barcode ?? '-'),
                     ),
-                    Expanded(child: Text(book.stockQuantity.toString())),
+                    Expanded(child: Text(formatNumber(book.stockQuantity))),
                   ],
                 ),
               ),

@@ -219,6 +219,9 @@ class _CartPanel extends StatelessWidget {
             TextField(
               controller: discountController,
               keyboardType: TextInputType.number,
+              inputFormatters: [
+                ThousandsSeparatorInputFormatter(),
+              ],
               decoration: const InputDecoration(
                 labelText: 'Chegirma (so\'m)',
                 hintText: '0',

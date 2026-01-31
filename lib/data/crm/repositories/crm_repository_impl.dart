@@ -71,6 +71,20 @@ class CrmRepositoryImpl implements CrmRepository {
   }
 
   @override
+  Future<CrmDebt> updateDebtPaid({
+    required int id,
+    required String paidAmount,
+    required bool isPaid,
+  }) async {
+    final response = await _remote.updateDebtPaid(
+      id: id,
+      paidAmount: paidAmount,
+      isPaid: isPaid,
+    );
+    return response.toEntity();
+  }
+
+  @override
   Future<List<CrmExpense>> getExpenses() async {
     final response = await _remote.getExpenses();
     return response.map((item) => item.toEntity()).toList();

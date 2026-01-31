@@ -17,6 +17,8 @@ class OrdersScreen extends ConsumerStatefulWidget {
 
 class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   final _scrollController = ScrollController();
+  String? _selectedCustomer;
+  String? _appliedCustomer;
 
   @override
   void initState() {
@@ -51,6 +53,18 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
     final state = ref.watch(
       crmOrdersControllerProvider(const CrmOrdersQuery()),
     );
+    final customers = state.items
+        .map((order) => order.fullName.trim())
+        .where((name) => name.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    final filteredItems = _appliedCustomer == null ||
+            _appliedCustomer!.trim().isEmpty
+        ? state.items
+        : state.items
+            .where((order) => order.fullName == _appliedCustomer)
+            .toList();
 
     return Column(
       children: [
@@ -60,6 +74,27 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SectionHeader(title: 'Buyurtmalar'),
+              const SizedBox(height: AppSpacing.lg),
+              _CustomerFilterCard(
+                customers: customers,
+                selectedCustomer: _selectedCustomer,
+                onCustomerChanged: (value) {
+                  setState(() {
+                    _selectedCustomer = value;
+                  });
+                },
+                onApply: () {
+                  setState(() {
+                    _appliedCustomer = _selectedCustomer;
+                  });
+                },
+                onClear: () {
+                  setState(() {
+                    _selectedCustomer = null;
+                    _appliedCustomer = null;
+                  });
+                },
+              ),
             ],
           ),
         ),
@@ -75,7 +110,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                       ),
                       children: [
                         TransactionList(
-                          items: state.items
+                          items: filteredItems
                               .map(
                                 (order) => TransactionRowData(
                                   title: order.fullName,
@@ -121,6 +156,80 @@ class _PaginationFooter extends StatelessWidget {
       );
     }
     return const SizedBox(height: 16);
+  }
+}
+
+class _CustomerFilterCard extends StatelessWidget {
+  const _CustomerFilterCard({
+    required this.customers,
+    required this.selectedCustomer,
+    required this.onCustomerChanged,
+    required this.onApply,
+    required this.onClear,
+  });
+
+  final List<String> customers;
+  final String? selectedCustomer;
+  final ValueChanged<String?> onCustomerChanged;
+  final VoidCallback onApply;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "Mijoz bo'yicha filter",
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: selectedCustomer,
+                  items: customers
+                      .map(
+                        (name) => DropdownMenuItem(
+                          value: name,
+                          child: Text(name, overflow: TextOverflow.ellipsis),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: onCustomerChanged,
+                  isExpanded: true,
+                  hint: const Text('Mijozni tanlang'),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              SizedBox(
+                width: 120,
+                child: FilledButton(
+                  onPressed: customers.isEmpty ? null : onApply,
+                  child: const Text('Filter'),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              SizedBox(
+                width: 120,
+                child: OutlinedButton(
+                  onPressed: onClear,
+                  child: const Text('Tozalash'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 

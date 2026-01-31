@@ -1,3 +1,5 @@
+import 'package:flutter/services.dart';
+
 String formatNumber(num value) {
   final negative = value < 0;
   final text = value.abs().round().toString();
@@ -33,4 +35,73 @@ String formatMoneyDynamic(dynamic value) {
     return '0 so\'m';
   }
   return formatMoney(parsed);
+}
+
+String stripNumberFormatting(String raw, {bool allowNegative = false}) {
+  var text = raw.replaceAll(RegExp(r'[^0-9-]'), '');
+  if (!allowNegative) {
+    return text.replaceAll('-', '');
+  }
+  if (text.isEmpty) {
+    return text;
+  }
+  final isNegative = text.startsWith('-');
+  text = text.replaceAll('-', '');
+  return isNegative ? '-$text' : text;
+}
+
+int? parseFormattedInt(String raw, {bool allowNegative = false}) {
+  final cleaned = stripNumberFormatting(raw, allowNegative: allowNegative);
+  if (cleaned.isEmpty || cleaned == '-') {
+    return null;
+  }
+  return int.tryParse(cleaned);
+}
+
+class ThousandsSeparatorInputFormatter extends TextInputFormatter {
+  ThousandsSeparatorInputFormatter({this.allowNegative = false});
+
+  final bool allowNegative;
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final raw = newValue.text;
+    if (raw.isEmpty) {
+      return newValue;
+    }
+
+    final negative = allowNegative && raw.startsWith('-');
+    final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) {
+      if (negative) {
+        return const TextEditingValue(
+          text: '-',
+          selection: TextSelection.collapsed(offset: 1),
+        );
+      }
+      return const TextEditingValue(text: '');
+    }
+
+    final formatted = _groupDigits(digits);
+    final text = negative ? '-$formatted' : formatted;
+    return TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+}
+
+String _groupDigits(String digits) {
+  final buffer = StringBuffer();
+  for (var i = 0; i < digits.length; i++) {
+    final indexFromEnd = digits.length - i;
+    buffer.write(digits[i]);
+    if (indexFromEnd > 1 && indexFromEnd % 3 == 1) {
+      buffer.write(' ');
+    }
+  }
+  return buffer.toString().trimRight();
 }
