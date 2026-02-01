@@ -6,7 +6,9 @@ import '../providers.dart';
 import '../ui/formatters.dart';
 
 class PricesScreen extends ConsumerStatefulWidget {
-  const PricesScreen({super.key});
+  const PricesScreen({super.key, this.barcode});
+
+  final String? barcode;
 
   @override
   ConsumerState<PricesScreen> createState() => _PricesScreenState();
@@ -14,12 +16,20 @@ class PricesScreen extends ConsumerStatefulWidget {
 
 class _PricesScreenState extends ConsumerState<PricesScreen> {
   final _controller = TextEditingController();
-  String _query = '';
+  String? _query = '';
+  bool _barcodeMode = false;
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => ref.read(crmBooksControllerProvider(_query).notifier).load());
+    if (widget.barcode != null && widget.barcode!.trim().isNotEmpty) {
+      _barcodeMode = true;
+      _query = null;
+      _controller.text = widget.barcode!.trim();
+    }
+    Future.microtask(
+      () => ref.read(crmBooksControllerProvider(_query).notifier).load(),
+    );
   }
 
   @override
@@ -29,13 +39,24 @@ class _PricesScreenState extends ConsumerState<PricesScreen> {
   }
 
   void _search() {
-    setState(() => _query = _controller.text.trim());
+    setState(() {
+      _barcodeMode = false;
+      _query = _controller.text.trim();
+    });
     ref.read(crmBooksControllerProvider(_query).notifier).load();
   }
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(crmBooksControllerProvider(_query));
+    final items = _barcodeMode
+        ? state.items
+            .where(
+              (book) =>
+                  (book.barcode ?? '').trim() == _controller.text.trim(),
+            )
+            .toList()
+        : state.items;
 
     return Scaffold(
       body: ListView(
@@ -59,7 +80,9 @@ class _PricesScreenState extends ConsumerState<PricesScreen> {
           else if (state.errorMessage != null && state.items.isEmpty)
             Text(state.errorMessage!)
           else
-            _PricesTable(items: state.items),
+            items.isEmpty
+                ? const Text('Kitob topilmadi')
+                : _PricesTable(items: items),
         ],
       ),
     );

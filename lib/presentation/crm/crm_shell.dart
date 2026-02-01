@@ -13,6 +13,7 @@ import 'pos_screen.dart';
 import 'prices_screen.dart';
 import 'report_screen.dart';
 import 'search_screen.dart';
+import 'barcode_scan_screen.dart';
 
 enum CrmSection {
   dashboard,
@@ -23,6 +24,7 @@ enum CrmSection {
   expenses,
   debts,
   pos,
+  barcode,
 }
 
 class CrmShell extends StatefulWidget {
@@ -109,6 +111,8 @@ class _CrmShellState extends State<CrmShell> {
         return 'Qarzdorlar';
       case CrmSection.pos:
         return 'POS';
+      case CrmSection.barcode:
+        return 'Barcode skaner';
     }
   }
 
@@ -162,6 +166,8 @@ class _CrmShellState extends State<CrmShell> {
         return const DebtsScreen();
       case CrmSection.pos:
         return const PosScreen();
+      case CrmSection.barcode:
+        return const BarcodeScanScreen();
     }
   }
 }
@@ -276,6 +282,12 @@ class _CrmDrawer extends StatelessWidget {
                     label: 'POS',
                     selected: current == CrmSection.pos,
                     onTap: () => onSelect(CrmSection.pos),
+                  ),
+                  _DrawerItem(
+                    icon: Icons.qr_code_scanner,
+                    label: 'Barcode skaner',
+                    selected: current == CrmSection.barcode,
+                    onTap: () => onSelect(CrmSection.barcode),
                   ),
                 ],
               ),

@@ -42,6 +42,7 @@ dependencies:
   equatable: ^2.0.5
   http: ^1.2.2
   shared_preferences: ^2.3.2
+  mobile_scanner: ^5.2.3
 
 dev_dependencies:
   flutter_test:
