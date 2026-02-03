@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/crm/entities/debt.dart';
 import '../../theme/app_theme.dart';
+import '../controllers/crm_debts_controller.dart';
 import '../providers.dart';
 import '../ui/formatters.dart';
 
@@ -19,8 +20,6 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
   final _amountController = TextEditingController();
   final _noteController = TextEditingController();
   final _scrollController = ScrollController();
-  String? _selectedName;
-  bool _listExpanded = false;
   int _visibleCount = 30;
 
   @override
@@ -79,9 +78,7 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
         .toSet()
         .toList()
       ..sort();
-    final filteredItems = _selectedName == null || _selectedName!.isEmpty
-        ? activeItems.take(_visibleCount).toList()
-        : activeItems.where((item) => item.fullName == _selectedName).toList();
+    final filteredItems = activeItems.take(_visibleCount).toList();
     final totalsByName = <String, double>{};
     for (final item in activeItems) {
       final key = item.fullName.trim();
@@ -94,61 +91,35 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
     }
     final sortedNames = totalsByName.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    final totalDebt = sortedNames.fold<double>(0, (sum, entry) => sum + entry.value);
 
     return Scaffold(
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showCreateDebtSheet(context, state, nameOptions),
+        backgroundColor: AppColors.accentPrimary,
+        foregroundColor: AppColors.background,
+        shape: const CircleBorder(),
+        child: const Icon(Icons.person_add_alt_1),
+      ),
       body: ListView(
         controller: _scrollController,
         padding: const EdgeInsets.all(16),
         children: [
           Text('Qarzdorlar', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isWide = constraints.maxWidth >= 900;
-              final cards = [
-                _DebtCreateCard(
-                  nameController: _nameController,
-                  phoneController: _phoneController,
-                  amountController: _amountController,
-                  noteController: _noteController,
-                  nameOptions: nameOptions,
-                  isSaving: state.isSaving,
-                  onSave: _save,
-                  errorMessage: state.errorMessage,
-                ),
-                _DebtorsListCard(
-                  items: sortedNames,
-                  selectedName: _selectedName,
-                  isExpanded: _listExpanded,
-                  onToggle: () {
-                    setState(() {
-                      _listExpanded = !_listExpanded;
-                    });
-                  },
-                  onSelect: (value) {
-                    setState(() {
-                      _selectedName = value;
-                    });
-                  },
-                ),
-              ];
-              if (isWide) {
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: cards[0]),
-                    const SizedBox(width: 16),
-                    Expanded(child: cards[1]),
-                  ],
-                );
-              }
-              return Column(
-                children: [
-                  cards[0],
-                  const SizedBox(height: 16),
-                  cards[1],
-                ],
-              );
+          InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => _showAllDebtsByDate(context),
+            child: _TotalsHeader(total: totalDebt),
+          ),
+          const SizedBox(height: 12),
+          _DebtorCards(
+            items: sortedNames,
+            onTap: (name) {
+              final debtsForName = state.items
+                  .where((item) => item.fullName.trim() == name)
+                  .toList();
+              _showDebtDetails(context, name, debtsForName);
             },
           ),
           const SizedBox(height: 16),
@@ -156,28 +127,816 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
             const Center(child: CircularProgressIndicator())
           else if (state.errorMessage != null && state.items.isEmpty)
             Text(state.errorMessage!)
-          else
-            _DebtTable(
-              items: filteredItems,
-              title: _selectedName,
-              onPaidChanged: (debt, paidRaw) {
-                final cleaned = stripNumberFormatting(paidRaw);
-                final parsed = double.tryParse(cleaned) ?? 0;
-                final nextPaid = debt.paidAmount + parsed;
-                final clamped = nextPaid < 0
-                    ? 0
-                    : (nextPaid > debt.amount ? debt.amount : nextPaid);
-                ref.read(crmDebtsControllerProvider.notifier).updatePaidAmount(
-                      id: debt.id,
-                      paidAmount: clamped.toStringAsFixed(0),
-                      isPaid: clamped >= debt.amount,
-                    );
-              },
-            ),
+          else if (filteredItems.isEmpty)
+            const Text('Qarzdorlar yo\'q'),
         ],
       ),
     );
   }
+
+  Future<void> _showDebtDetails(
+    BuildContext context,
+    String name,
+    List<CrmDebt> debts,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.background,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return _DebtDetailsSheet(
+          name: name,
+        );
+      },
+    );
+  }
+
+  Future<void> _showCreateDebtSheet(
+    BuildContext context,
+    CrmDebtsState state,
+    List<String> nameOptions,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.background,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+        return Padding(
+          padding: EdgeInsets.only(bottom: bottomInset),
+          child: SafeArea(
+            top: false,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: _DebtCreateCard(
+                nameController: _nameController,
+                phoneController: _phoneController,
+                amountController: _amountController,
+                noteController: _noteController,
+                nameOptions: nameOptions,
+                isSaving: state.isSaving,
+                onSave: () async {
+                  await _save();
+                  if (context.mounted) {
+                    Navigator.of(context).pop();
+                  }
+                },
+                errorMessage: state.errorMessage,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showAllDebtsByDate(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.background,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return const _AllDebtsByDateSheet();
+      },
+    );
+  }
+}
+
+class _DebtorCards extends StatelessWidget {
+  const _DebtorCards({
+    required this.items,
+    required this.onTap,
+  });
+
+  final List<MapEntry<String, double>> items;
+  final ValueChanged<String> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) {
+      return Card(
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.grey.shade200),
+        ),
+        child: const Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('Qarzdorlar yo\'q'),
+        ),
+      );
+    }
+
+    return Column(
+      children: items
+          .map(
+            (entry) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => onTap(entry.key),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          entry.key,
+                          style: Theme.of(context).textTheme.titleSmall,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.card,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Text(
+                          formatMoney(entry.value),
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelLarge
+                              ?.copyWith(color: AppColors.accentPrimary),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
+class _DebtDetailCard extends StatelessWidget {
+  const _DebtDetailCard({required this.item});
+
+  final CrmDebt item;
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = item.amount - item.paidAmount;
+    final isNoteOnly = item.amount == 0;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  isNoteOnly ? 'Izoh' : formatMoney(item.amount),
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              Text(
+                _formatDebtDate(item.createdAt),
+                style: Theme.of(context)
+                    .textTheme
+                    .labelSmall
+                    ?.copyWith(color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (item.note.trim().isNotEmpty)
+            Text(
+              item.note,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: AppColors.textSecondary),
+            ),
+          if (item.note.trim().isNotEmpty) const SizedBox(height: 6),
+          if (item.orderItems.isNotEmpty) ...[
+            Text(
+              'Mahsulotlar',
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 6),
+            ...item.orderItems.map(
+              (orderItem) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        orderItem.title,
+                        style: Theme.of(context).textTheme.bodySmall,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${orderItem.quantity} x ${formatMoney(orderItem.price)}',
+                      style: Theme.of(context)
+                          .textTheme
+                          .labelSmall
+                          ?.copyWith(color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+          ],
+          if (!isNoteOnly) ...[
+            Text(
+              'To\'langan: ${formatMoney(item.paidAmount)}',
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Qoldiq: ${formatMoney(remaining < 0 ? 0 : remaining)}',
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: AppColors.textSecondary),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AllDebtsByDateSheet extends ConsumerStatefulWidget {
+  const _AllDebtsByDateSheet();
+
+  @override
+  ConsumerState<_AllDebtsByDateSheet> createState() =>
+      _AllDebtsByDateSheetState();
+}
+
+class _AllDebtsByDateSheetState extends ConsumerState<_AllDebtsByDateSheet> {
+  DateTime? _startDate;
+  DateTime? _endDate;
+
+  Future<void> _pickDate({required bool isStart}) async {
+    final initialDate =
+        isStart ? (_startDate ?? DateTime.now()) : (_endDate ?? DateTime.now());
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) {
+      setState(() {
+        if (isStart) {
+          _startDate = picked;
+        } else {
+          _endDate = picked;
+        }
+      });
+    }
+  }
+
+  bool _matchesRange(DateTime? value) {
+    if (value == null) {
+      return false;
+    }
+    final date = DateTime(value.year, value.month, value.day);
+    if (_startDate != null) {
+      final start = DateTime(_startDate!.year, _startDate!.month, _startDate!.day);
+      if (date.isBefore(start)) {
+        return false;
+      }
+    }
+    if (_endDate != null) {
+      final end = DateTime(_endDate!.year, _endDate!.month, _endDate!.day);
+      if (date.isAfter(end)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(crmDebtsControllerProvider);
+    final debts = state.items
+        .where((item) => _matchesRange(item.createdAt))
+        .where(
+          (item) =>
+              (item.amount - item.paidAmount) > 0 ||
+              (item.amount == 0 && item.note.trim().isNotEmpty),
+        )
+        .toList()
+      ..sort((a, b) {
+        final aDate = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bDate = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bDate.compareTo(aDate);
+      });
+    final totalRemaining = debts.fold<double>(
+      0,
+      (sum, item) {
+        if (item.amount == 0) {
+          return sum;
+        }
+        final remaining = item.amount - item.paidAmount;
+        return sum + (remaining < 0 ? 0 : remaining);
+      },
+    );
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Barchasi', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 4),
+              Text(
+                'Qoldiq: ${formatMoney(totalRemaining)}',
+                style: Theme.of(context)
+                    .textTheme
+                    .labelMedium
+                    ?.copyWith(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DateChip(
+                      label: 'Boshlanish',
+                      value: _startDate,
+                      onTap: () => _pickDate(isStart: true),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _DateChip(
+                      label: 'Tugash',
+                      value: _endDate,
+                      onTap: () => _pickDate(isStart: false),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (debts.isEmpty)
+                Text(
+                  'Qarzlar topilmadi',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                )
+              else
+                ...debts.map(
+                  (item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _DebtDetailCard(item: item),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _formatDebtDate(DateTime? value) {
+  if (value == null) {
+    return '-';
+  }
+  final local = _toTashkentTime(value);
+  final year = local.year.toString().padLeft(4, '0');
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '$year-$month-$day $hour:$minute';
+}
+
+DateTime _toTashkentTime(DateTime value) {
+  if (value.isUtc) {
+    return value.add(const Duration(hours: 5));
+  }
+  return value;
+}
+
+class _DebtDetailsSheet extends ConsumerStatefulWidget {
+  const _DebtDetailsSheet({
+    required this.name,
+  });
+
+  final String name;
+
+  @override
+  ConsumerState<_DebtDetailsSheet> createState() => _DebtDetailsSheetState();
+}
+
+class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
+  final _amountController = TextEditingController();
+  final _noteController = TextEditingController();
+  final _paidController = TextEditingController();
+  final _noteOnlyController = TextEditingController();
+  bool _isSaving = false;
+  bool _isPaying = false;
+  bool _isSavingNote = false;
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    _noteController.dispose();
+    _paidController.dispose();
+    _noteOnlyController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final amountRaw = stripNumberFormatting(_amountController.text.trim());
+    if (amountRaw.isEmpty) {
+      return;
+    }
+    setState(() => _isSaving = true);
+    try {
+      final state = ref.read(crmDebtsControllerProvider);
+      final debts = state.items
+          .where((item) => item.fullName.trim() == widget.name)
+          .toList();
+      final phone = debts.firstWhere(
+        (item) => item.phone.trim().isNotEmpty,
+        orElse: () => debts.isNotEmpty
+            ? debts.first
+            : const CrmDebt(
+                id: 0,
+                fullName: '',
+                phone: '',
+                amount: 0,
+                paidAmount: 0,
+                isPaid: false,
+                note: '',
+                createdAt: null,
+              ),
+      ).phone;
+      await ref.read(crmDebtsControllerProvider.notifier).create(
+            fullName: widget.name,
+            amount: amountRaw,
+            phone: phone,
+            note: _noteController.text.trim(),
+          );
+      await ref.read(crmDebtsControllerProvider.notifier).load();
+      _amountController.clear();
+      _noteController.clear();
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  Future<void> _submitNoteOnly() async {
+    final note = _noteOnlyController.text.trim();
+    if (note.isEmpty) {
+      return;
+    }
+    setState(() => _isSavingNote = true);
+    try {
+      final state = ref.read(crmDebtsControllerProvider);
+      final debts = state.items
+          .where((item) => item.fullName.trim() == widget.name)
+          .toList();
+      final phone = debts.firstWhere(
+        (item) => item.phone.trim().isNotEmpty,
+        orElse: () => debts.isNotEmpty
+            ? debts.first
+            : const CrmDebt(
+                id: 0,
+                fullName: '',
+                phone: '',
+                amount: 0,
+                paidAmount: 0,
+                isPaid: false,
+                note: '',
+                createdAt: null,
+              ),
+      ).phone;
+      await ref.read(crmDebtsControllerProvider.notifier).create(
+            fullName: widget.name,
+            amount: '0',
+            phone: phone,
+            note: note,
+          );
+      await ref.read(crmDebtsControllerProvider.notifier).load();
+      _noteOnlyController.clear();
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingNote = false);
+      }
+    }
+  }
+
+  Future<void> _submitPayment() async {
+    final amountRaw = stripNumberFormatting(_paidController.text.trim());
+    if (amountRaw.isEmpty) {
+      return;
+    }
+    setState(() => _isPaying = true);
+    try {
+      final state = ref.read(crmDebtsControllerProvider);
+      final debts = state.items
+          .where((item) => item.fullName.trim() == widget.name)
+          .toList();
+      if (debts.isEmpty) {
+        return;
+      }
+      final targetDebt = debts.firstWhere(
+        (item) => (item.amount - item.paidAmount) > 0,
+        orElse: () => debts.first,
+      );
+      final parsed = double.tryParse(amountRaw) ?? 0;
+      if (parsed <= 0) {
+        return;
+      }
+      final nextPaid = targetDebt.paidAmount + parsed;
+      final clamped = nextPaid < 0
+          ? 0
+          : (nextPaid > targetDebt.amount ? targetDebt.amount : nextPaid);
+      await ref.read(crmDebtsControllerProvider.notifier).updatePaidAmount(
+            id: targetDebt.id,
+            paidAmount: clamped.toStringAsFixed(0),
+            isPaid: clamped >= targetDebt.amount,
+          );
+      await ref.read(crmDebtsControllerProvider.notifier).load();
+      _paidController.clear();
+    } finally {
+      if (mounted) {
+        setState(() => _isPaying = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final state = ref.watch(crmDebtsControllerProvider);
+    final debts = state.items
+        .where((item) => item.fullName.trim() == widget.name)
+        .where(
+          (item) =>
+              (item.amount - item.paidAmount) > 0 ||
+              (item.amount == 0 && item.note.trim().isNotEmpty),
+        )
+        .toList()
+      ..sort((a, b) {
+        final aDate = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bDate = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bDate.compareTo(aDate);
+      });
+    final totalRemaining = debts.fold<double>(
+      0,
+      (sum, item) {
+        if (item.amount == 0) {
+          return sum;
+        }
+        final remaining = item.amount - item.paidAmount;
+        return sum + (remaining < 0 ? 0 : remaining);
+      },
+    );
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(widget.name, style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 4),
+              Text(
+                'Qoldiq: ${formatMoney(totalRemaining)}',
+                style: Theme.of(context)
+                    .textTheme
+                    .labelMedium
+                    ?.copyWith(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              if (debts.isEmpty)
+                Text(
+                  'Qarzdor topilmadi',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                )
+              else
+                ...debts.map(
+                  (item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _DebtDetailCard(item: item),
+                  ),
+                ),
+              const SizedBox(height: 8),
+              Text(
+                'To\'lov qo\'shish',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _paidController,
+                decoration: const InputDecoration(
+                  hintText: 'To\'langan summa',
+                ),
+                keyboardType: TextInputType.number,
+                inputFormatters: [ThousandsSeparatorInputFormatter()],
+              ),
+              const SizedBox(height: 8),
+              FilledButton(
+                onPressed: _isPaying ? null : _submitPayment,
+                child: _isPaying
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('To\'lovni saqlash'),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Yangi qarz',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _amountController,
+                decoration: const InputDecoration(
+                  hintText: 'Qarz summasi',
+                ),
+                keyboardType: TextInputType.number,
+                inputFormatters: [ThousandsSeparatorInputFormatter()],
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _noteController,
+                decoration: const InputDecoration(
+                  hintText: 'Izoh (ixtiyoriy)',
+                ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: _isSaving ? null : _submit,
+                child: _isSaving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Saqlash'),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Yangi izoh',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _noteOnlyController,
+                decoration: const InputDecoration(
+                  hintText: 'Izoh',
+                ),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: _isSavingNote ? null : _submitNoteOnly,
+                child: _isSavingNote
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Izohni saqlash'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TotalsHeader extends StatelessWidget {
+  const _TotalsHeader({required this.total});
+
+  final double total;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Barchasi',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          Text(
+            formatMoney(total),
+            style: Theme.of(context)
+                .textTheme
+                .titleSmall
+                ?.copyWith(color: AppColors.accentPrimary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DateChip extends StatelessWidget {
+  const _DateChip({
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  final String label;
+  final DateTime? value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = value == null ? 'Tanlash' : _formatDateOnly(value!);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadii.md),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppRadii.md),
+          border: Border.all(color: AppColors.border),
+          color: AppColors.surface,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 4),
+            Text(text, style: Theme.of(context).textTheme.labelLarge),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _formatDateOnly(DateTime value) {
+  final two = (int v) => v.toString().padLeft(2, '0');
+  return '${value.year}-${two(value.month)}-${two(value.day)}';
 }
 
 class _DebtCreateCard extends StatelessWidget {
@@ -283,550 +1042,6 @@ class _DebtCreateCard extends StatelessWidget {
               ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _DebtorsListCard extends StatelessWidget {
-  const _DebtorsListCard({
-    required this.items,
-    required this.selectedName,
-    required this.isExpanded,
-    required this.onToggle,
-    required this.onSelect,
-  });
-
-  final List<MapEntry<String, double>> items;
-  final String? selectedName;
-  final bool isExpanded;
-  final VoidCallback onToggle;
-  final ValueChanged<String?> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.grey.shade200),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text('Qarzdorlar ro\'yxati',
-                      style: Theme.of(context).textTheme.titleMedium),
-                ),
-                IconButton(
-                  onPressed: onToggle,
-                  icon: Icon(
-                    isExpanded ? Icons.expand_less : Icons.expand_more,
-                  ),
-                ),
-              ],
-            ),
-            if (isExpanded) ...[
-              const SizedBox(height: 12),
-              ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: items.length + 1,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (context, index) {
-                  if (index == 0) {
-                    final isSelected =
-                        selectedName == null || selectedName!.isEmpty;
-                    return _NameChip(
-                      title: 'Barchasi',
-                      total: items.fold<double>(
-                        0,
-                        (sum, item) => sum + item.value,
-                      ),
-                      isSelected: isSelected,
-                      onTap: () => onSelect(null),
-                    );
-                  }
-                  final entry = items[index - 1];
-                  return _NameChip(
-                    title: entry.key,
-                    total: entry.value,
-                    isSelected: selectedName == entry.key,
-                    onTap: () => onSelect(entry.key),
-                  );
-                },
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _NameChip extends StatelessWidget {
-  const _NameChip({
-    required this.title,
-    required this.total,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  final String title;
-  final double total;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: isSelected ? AppColors.accentPrimary : AppColors.surface,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  title,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: isSelected
-                            ? AppColors.background
-                            : AppColors.textPrimary,
-                      ),
-                ),
-              ),
-              Text(
-                formatNumber(total),
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: isSelected
-                          ? AppColors.background
-                          : AppColors.textPrimary,
-                    ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DebtTable extends StatefulWidget {
-  const _DebtTable({
-    required this.items,
-    required this.title,
-    required this.onPaidChanged,
-  });
-
-  final List<CrmDebt> items;
-  final String? title;
-  final void Function(CrmDebt debt, String paidRaw) onPaidChanged;
-
-  @override
-  State<_DebtTable> createState() => _DebtTableState();
-}
-
-class _DebtTableState extends State<_DebtTable> {
-  final Map<int, TextEditingController> _controllers = {};
-  final Map<int, FocusNode> _focusNodes = {};
-  final Map<int, String> _lastSent = {};
-
-  @override
-  void initState() {
-    super.initState();
-    for (final item in widget.items) {
-      _controllers[item.id] = TextEditingController(
-        text: _paidText(item.paidAmount),
-      );
-      _focusNodes[item.id] = _buildFocusNode(item.id);
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant _DebtTable oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final ids = widget.items.map((e) => e.id).toSet();
-    final removeIds = _controllers.keys.where((id) => !ids.contains(id)).toList();
-    for (final id in removeIds) {
-      _controllers.remove(id)?.dispose();
-      _focusNodes.remove(id)?.dispose();
-    }
-    for (final item in widget.items) {
-      final controller = _controllers.putIfAbsent(
-        item.id,
-        () => TextEditingController(),
-      );
-      final focusNode =
-          _focusNodes.putIfAbsent(item.id, () => _buildFocusNode(item.id));
-      final text = _paidText(item.paidAmount);
-      if (!focusNode.hasFocus && controller.text != text) {
-        controller.text = text;
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    for (final controller in _controllers.values) {
-      controller.dispose();
-    }
-    for (final node in _focusNodes.values) {
-      node.dispose();
-    }
-    super.dispose();
-  }
-
-  FocusNode _buildFocusNode(int id) {
-    final node = FocusNode();
-    node.addListener(() {
-      if (!node.hasFocus) {
-        _notifyPaidChanged(id);
-      }
-    });
-    return node;
-  }
-
-  void _notifyPaidChanged(int id) {
-    final item = widget.items
-        .cast<CrmDebt?>()
-        .firstWhere((e) => e?.id == id, orElse: () => null);
-    if (item == null) {
-      return;
-    }
-    final text = _controllers[id]?.text ?? '';
-    final parsed = parseFormattedInt(text) ?? 0;
-    if (parsed <= 0) {
-      return;
-    }
-    if (_lastSent[id] == text) {
-      return;
-    }
-    _lastSent[id] = text;
-    widget.onPaidChanged(item, text);
-    _controllers[id]?.clear();
-  }
-
-  String _paidText(double paidAmount) {
-    return '';
-  }
-
-  double _currentPaidAmount(CrmDebt item) {
-    final raw = _controllers[item.id]?.text ?? '';
-    final parsed = parseFormattedInt(raw) ?? 0;
-    return item.paidAmount + parsed.toDouble();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final items = widget.items;
-    final isNarrow = MediaQuery.of(context).size.width < 420;
-    final headerStyle = Theme.of(context).textTheme.labelSmall;
-    final cellStyle = isNarrow
-        ? Theme.of(context).textTheme.bodySmall
-        : Theme.of(context).textTheme.bodyMedium;
-
-    if (items.isEmpty) {
-      return Card(
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: Colors.grey.shade200),
-        ),
-        child: const Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('Qarzdorlar yo\'q'),
-        ),
-      );
-    }
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.grey.shade200),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Qarzlar: ${widget.title == null || widget.title!.isEmpty ? "Barchasi" : widget.title}',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (isNarrow) ...[
-              ...items.map((item) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _DebtCard(
-                      item: item,
-                      controller: _controllers[item.id]!,
-                      focusNode: _focusNodes[item.id]!,
-                      onPaidChanged: (value) => widget.onPaidChanged(item, value),
-                    ),
-                  )),
-            ] else ...[
-              Row(
-                children: [
-                  _TableCell(
-                    'F.I.Sh',
-                    flex: 2,
-                    style: headerStyle,
-                    maxLines: 2,
-                  ),
-                  _TableCell(
-                    'Telefon',
-                    style: headerStyle,
-                    maxLines: 2,
-                  ),
-                  _TableCell(
-                    'Izoh',
-                    style: headerStyle,
-                    maxLines: 2,
-                  ),
-                  _TableCell(
-                    'Qarz',
-                    style: headerStyle,
-                    textAlign: TextAlign.end,
-                    maxLines: 2,
-                  ),
-                  _TableCell(
-                    "To'langan",
-                    style: headerStyle,
-                    textAlign: TextAlign.end,
-                    maxLines: 2,
-                  ),
-                  _TableCell(
-                    'Qoldiq',
-                    style: headerStyle,
-                    textAlign: TextAlign.end,
-                    maxLines: 2,
-                  ),
-                ],
-              ),
-              const Divider(),
-              ...items.map(
-                (item) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Row(
-                    children: [
-                      _TableCell(
-                        item.fullName,
-                        flex: 2,
-                        style: cellStyle,
-                        maxLines: 2,
-                      ),
-                      _TableCell(
-                        item.phone,
-                        style: cellStyle,
-                        maxLines: 2,
-                      ),
-                      _TableCell(
-                        item.note.isEmpty ? '-' : item.note,
-                        style: cellStyle,
-                        maxLines: 2,
-                      ),
-                      _TableCell(
-                        formatNumber(item.amount),
-                        style: cellStyle,
-                        textAlign: TextAlign.end,
-                        maxLines: 1,
-                      ),
-                      Expanded(
-                        child: SizedBox(
-                          height: 36,
-                          child: TextField(
-                            controller: _controllers[item.id],
-                            focusNode: _focusNodes[item.id],
-                            textAlign: TextAlign.end,
-                            style: cellStyle,
-                            keyboardType: TextInputType.number,
-                            inputFormatters: [
-                              ThousandsSeparatorInputFormatter(),
-                            ],
-                          decoration: const InputDecoration(
-                            hintText: '0',
-                            isDense: true,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 8,
-                                vertical: 8,
-                              ),
-                            ),
-                          onSubmitted: (value) =>
-                              widget.onPaidChanged(item, value),
-                          onEditingComplete: () {
-                            final value = _controllers[item.id]?.text ?? '';
-                            widget.onPaidChanged(item, value);
-                            _focusNodes[item.id]?.unfocus();
-                            },
-                          ),
-                        ),
-                      ),
-                      _TableCell(
-                        formatNumber(
-                          (item.amount - _currentPaidAmount(item)) < 0
-                              ? 0
-                              : (item.amount - _currentPaidAmount(item)),
-                        ),
-                        style: cellStyle,
-                        textAlign: TextAlign.end,
-                        maxLines: 1,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _TableCell extends StatelessWidget {
-  const _TableCell(
-    this.text, {
-    this.flex = 1,
-    this.textAlign,
-    this.maxLines = 1,
-    this.style,
-  });
-
-  final String text;
-  final int flex;
-  final TextAlign? textAlign;
-  final int maxLines;
-  final TextStyle? style;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      flex: flex,
-      child: Text(
-        text,
-        maxLines: maxLines,
-        overflow: TextOverflow.ellipsis,
-        softWrap: true,
-        textAlign: textAlign,
-        style: style,
-      ),
-    );
-  }
-}
-
-class _DebtCard extends StatelessWidget {
-  const _DebtCard({
-    required this.item,
-    required this.controller,
-    required this.focusNode,
-    required this.onPaidChanged,
-  });
-
-  final CrmDebt item;
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final ValueChanged<String> onPaidChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final labelStyle = Theme.of(context).textTheme.labelSmall;
-    final valueStyle = Theme.of(context).textTheme.bodySmall;
-    final parsed = parseFormattedInt(controller.text) ?? 0;
-    final remaining =
-        (item.amount - (item.paidAmount + parsed)) < 0
-            ? 0
-            : (item.amount - (item.paidAmount + parsed));
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _CardRow(label: 'F.I.Sh', value: item.fullName),
-          _CardRow(label: 'Telefon', value: item.phone),
-          _CardRow(label: 'Izoh', value: item.note.isEmpty ? '-' : item.note),
-          _CardRow(label: 'Qarz', value: formatNumber(item.amount)),
-          Row(
-            children: [
-              Expanded(
-                child: Text('To\'langan', style: labelStyle),
-              ),
-              SizedBox(
-                width: 140,
-                child: TextField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  textAlign: TextAlign.end,
-                  style: valueStyle,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    ThousandsSeparatorInputFormatter(),
-                  ],
-                  decoration: const InputDecoration(
-                    hintText: '0',
-                    isDense: true,
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                  ),
-                  onSubmitted: onPaidChanged,
-                  onEditingComplete: () {
-                    onPaidChanged(controller.text);
-                    focusNode.unfocus();
-                  },
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          _CardRow(
-            label: 'Qoldiq',
-            value: formatNumber(remaining),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CardRow extends StatelessWidget {
-  const _CardRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final labelStyle = Theme.of(context).textTheme.labelSmall;
-    final valueStyle = Theme.of(context).textTheme.bodySmall;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(width: 80, child: Text(label, style: labelStyle)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              value,
-              style: valueStyle,
-              softWrap: true,
-            ),
-          ),
-        ],
       ),
     );
   }

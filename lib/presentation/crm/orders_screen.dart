@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/crm/entities/order.dart';
 import '../../theme/app_theme.dart';
 import '../controllers/crm_orders_controller.dart';
 import '../providers.dart';
@@ -99,40 +100,150 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
           ),
         ),
         Expanded(
-          child: state.isLoading && state.items.isEmpty
-              ? const Center(child: CircularProgressIndicator())
-              : state.errorMessage != null && state.items.isEmpty
-                  ? _ErrorView(message: state.errorMessage!, onRetry: _load)
-                  : ListView(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.xl,
-                      ),
-                      children: [
-                        TransactionList(
-                          items: filteredItems
-                              .map(
-                                (order) => TransactionRowData(
-                                  title: order.fullName,
-                                  subtitle:
-                                      '${order.orderSource} • ${_formatDate(order.createdAt)}',
-                                  amount: formatMoney(order.totalPrice),
-                                  isPositive: true,
-                                  icon: Icons.receipt_long_outlined,
+                child: state.isLoading && state.items.isEmpty
+                    ? const Center(child: CircularProgressIndicator())
+                    : state.errorMessage != null && state.items.isEmpty
+                        ? _ErrorView(message: state.errorMessage!, onRetry: _load)
+                        : ListView(
+                            controller: _scrollController,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.xl,
+                            ),
+                            children: [
+                              ...filteredItems.map(
+                                (order) => Padding(
+                                  padding:
+                                      const EdgeInsets.only(bottom: AppSpacing.md),
+                                  child: TransactionRow(
+                                    data: TransactionRowData(
+                                      title: order.fullName,
+                                      subtitle:
+                                          '${order.orderSource} • ${_formatDate(order.createdAt)}',
+                                      amount: formatMoney(order.totalPrice),
+                                      isPositive: true,
+                                      icon: Icons.receipt_long_outlined,
+                                    ),
+                                    onTap: (_) =>
+                                        _showOrderDetails(context, order),
+                                  ),
                                 ),
-                              )
-                              .toList(),
-                        ),
-                        _PaginationFooter(
-                          isLoading: state.isLoadingMore,
-                          hasNext: state.hasNext,
-                        ),
-                      ],
-                    ),
+                              ),
+                              _PaginationFooter(
+                                isLoading: state.isLoadingMore,
+                                hasNext: state.hasNext,
+                              ),
+                            ],
+                          ),
         ),
       ],
     );
   }
+}
+
+Future<void> _showOrderDetails(BuildContext context, CrmOrder order) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: AppColors.background,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (context) {
+      return Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  order.fullName,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${order.orderSource} • ${_formatDate(order.createdAt)}',
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelMedium
+                      ?.copyWith(color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: 16),
+                if (order.items.isEmpty)
+                  Text(
+                    'Mahsulotlar topilmadi',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  )
+                else
+                  ...order.items.map(
+                    (item) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(AppRadii.lg),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                item.title,
+                                style: Theme.of(context).textTheme.bodyMedium,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '${item.quantity} x ${formatMoney(item.price)}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(color: AppColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.card,
+                    borderRadius: BorderRadius.circular(AppRadii.lg),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Jami',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                      ),
+                      Text(
+                        formatMoney(order.totalPrice),
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(color: AppColors.accentPrimary),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class _PaginationFooter extends StatelessWidget {
@@ -261,7 +372,14 @@ String _formatDate(DateTime? value) {
   if (value == null) {
     return '';
   }
-  final local = value.toLocal();
+  final local = _toTashkentTime(value);
   final two = (int v) => v.toString().padLeft(2, '0');
   return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+}
+
+DateTime _toTashkentTime(DateTime value) {
+  if (value.isUtc) {
+    return value.add(const Duration(hours: 5));
+  }
+  return value;
 }

@@ -10,7 +10,11 @@ OrderModel _$OrderModelFromJson(Map<String, dynamic> json) => OrderModel(
       orderSource: json['order_source'] as String? ?? '',
       totalPrice: _toDouble(json['total_price']),
       createdAt: json['created_at'] as String?,
-      items: json['items'] as List<dynamic>? ?? [],
+      items: (json['items'] as List<dynamic>?)
+              ?.whereType<Map<String, dynamic>>()
+              .map(OrderItemModel.fromJson)
+              .toList() ??
+          const [],
     );
 
 Map<String, dynamic> _$OrderModelToJson(OrderModel instance) =>
@@ -22,5 +26,21 @@ Map<String, dynamic> _$OrderModelToJson(OrderModel instance) =>
       'order_source': instance.orderSource,
       'total_price': instance.totalPrice,
       'created_at': instance.createdAt,
-      'items': instance.items,
+      'items': instance.items.map((e) => e.toJson()).toList(),
+    };
+
+OrderItemModel _$OrderItemModelFromJson(Map<String, dynamic> json) =>
+    OrderItemModel(
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      title: json['book'] as String? ?? '',
+      quantity: (json['quantity'] as num?)?.toInt() ?? 0,
+      price: _toDouble(json['price']),
+    );
+
+Map<String, dynamic> _$OrderItemModelToJson(OrderItemModel instance) =>
+    <String, dynamic>{
+      'id': instance.id,
+      'book': instance.title,
+      'quantity': instance.quantity,
+      'price': instance.price,
     };

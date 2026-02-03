@@ -10,6 +10,7 @@ class CrmDebt extends Equatable {
     required this.isPaid,
     required this.note,
     required this.createdAt,
+    this.orderItems = const [],
   });
 
   final int id;
@@ -20,6 +21,7 @@ class CrmDebt extends Equatable {
   final bool isPaid;
   final String note;
   final DateTime? createdAt;
+  final List<CrmDebtOrderItem> orderItems;
 
   @override
   List<Object?> get props => [
@@ -31,5 +33,23 @@ class CrmDebt extends Equatable {
         isPaid,
         note,
         createdAt,
+        orderItems,
       ];
+}
+
+class CrmDebtOrderItem extends Equatable {
+  const CrmDebtOrderItem({
+    required this.id,
+    required this.title,
+    required this.quantity,
+    required this.price,
+  });
+
+  final int id;
+  final String title;
+  final int quantity;
+  final double price;
+
+  @override
+  List<Object?> get props => [id, title, quantity, price];
 }

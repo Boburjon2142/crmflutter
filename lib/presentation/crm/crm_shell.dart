@@ -79,8 +79,8 @@ class _CrmShellState extends State<CrmShell> {
                 icon: Icons.receipt_long_outlined, label: 'Buyurtmalar'),
             AppBottomNavItem(
                 icon: Icons.inventory_2_outlined, label: 'Mahsulotlar'),
-            AppBottomNavItem(icon: Icons.sell_outlined, label: 'Narxlar'),
             AppBottomNavItem(icon: Icons.bar_chart_outlined, label: 'Hisobot'),
+            AppBottomNavItem(icon: Icons.qr_code_scanner, label: 'Skaner'),
           ],
           onTap: (index) {
             setState(() {
@@ -124,9 +124,9 @@ class _CrmShellState extends State<CrmShell> {
         return 1;
       case CrmSection.inventory:
         return 2;
-      case CrmSection.prices:
-        return 3;
       case CrmSection.report:
+        return 3;
+      case CrmSection.barcode:
         return 4;
       default:
         return 0;
@@ -140,9 +140,9 @@ class _CrmShellState extends State<CrmShell> {
       case 2:
         return CrmSection.inventory;
       case 3:
-        return CrmSection.prices;
-      case 4:
         return CrmSection.report;
+      case 4:
+        return CrmSection.barcode;
       default:
         return CrmSection.dashboard;
     }

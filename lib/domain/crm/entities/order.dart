@@ -10,6 +10,7 @@ class CrmOrder extends Equatable {
     required this.totalPrice,
     required this.createdAt,
     required this.itemsCount,
+    this.items = const [],
   });
 
   final int id;
@@ -20,6 +21,7 @@ class CrmOrder extends Equatable {
   final double totalPrice;
   final DateTime? createdAt;
   final int itemsCount;
+  final List<CrmOrderItem> items;
 
   @override
   List<Object?> get props => [
@@ -31,5 +33,23 @@ class CrmOrder extends Equatable {
         totalPrice,
         createdAt,
         itemsCount,
+        items,
       ];
+}
+
+class CrmOrderItem extends Equatable {
+  const CrmOrderItem({
+    required this.id,
+    required this.title,
+    required this.quantity,
+    required this.price,
+  });
+
+  final int id;
+  final String title;
+  final int quantity;
+  final double price;
+
+  @override
+  List<Object?> get props => [id, title, quantity, price];
 }
