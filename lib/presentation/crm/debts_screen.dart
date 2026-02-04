@@ -92,6 +92,7 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
     }
     final sortedNames = totalsByName.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    final visibleNames = sortedNames.take(_visibleCount).toList();
     final totalDebt = sortedNames.fold<double>(0, (sum, entry) => sum + entry.value);
 
     return Scaffold(
@@ -115,7 +116,7 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
           ),
           const SizedBox(height: 12),
           _DebtorCards(
-            items: sortedNames,
+            items: visibleNames,
             onTap: (name) {
               final debtsForName = state.items
                   .where((item) => item.fullName.trim() == name)
@@ -1118,15 +1119,6 @@ class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
               if (_showNewDebt) ...[
                 const SizedBox(height: 8),
                 TextField(
-                  controller: _amountController,
-                  decoration: const InputDecoration(
-                    hintText: 'Qarz summasi',
-                  ),
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [ThousandsSeparatorInputFormatter()],
-                ),
-                const SizedBox(height: 8),
-                TextField(
                   controller: _noteController,
                   decoration: const InputDecoration(
                     hintText: 'Izoh (ixtiyoriy)',
@@ -1134,6 +1126,15 @@ class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
                   maxLines: 3,
                   keyboardType: TextInputType.multiline,
                   textInputAction: TextInputAction.newline,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _amountController,
+                  decoration: const InputDecoration(
+                    hintText: 'Qarz summasi',
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [ThousandsSeparatorInputFormatter()],
                 ),
                 const SizedBox(height: 12),
                 FilledButton(

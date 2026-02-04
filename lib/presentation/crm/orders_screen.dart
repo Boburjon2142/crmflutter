@@ -104,35 +104,36 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                     ? const Center(child: CircularProgressIndicator())
                     : state.errorMessage != null && state.items.isEmpty
                         ? _ErrorView(message: state.errorMessage!, onRetry: _load)
-                        : ListView(
+                        : ListView.builder(
                             controller: _scrollController,
                             padding: const EdgeInsets.symmetric(
                               horizontal: AppSpacing.xl,
                             ),
-                            children: [
-                              ...filteredItems.map(
-                                (order) => Padding(
-                                  padding:
-                                      const EdgeInsets.only(bottom: AppSpacing.md),
-                                  child: TransactionRow(
-                                    data: TransactionRowData(
-                                      title: order.fullName,
-                                      subtitle:
-                                          '${order.orderSource} • ${_formatDate(order.createdAt)}',
-                                      amount: formatMoney(order.totalPrice),
-                                      isPositive: true,
-                                      icon: Icons.receipt_long_outlined,
-                                    ),
-                                    onTap: (_) =>
-                                        _showOrderDetails(context, order),
+                            itemCount: filteredItems.length + 1,
+                            itemBuilder: (context, index) {
+                              if (index >= filteredItems.length) {
+                                return _PaginationFooter(
+                                  isLoading: state.isLoadingMore,
+                                  hasNext: state.hasNext,
+                                );
+                              }
+                              final order = filteredItems[index];
+                              return Padding(
+                                padding:
+                                    const EdgeInsets.only(bottom: AppSpacing.md),
+                                child: TransactionRow(
+                                  data: TransactionRowData(
+                                    title: order.fullName,
+                                    subtitle:
+                                        '${order.orderSource} • ${_formatDate(order.createdAt)}',
+                                    amount: formatMoney(order.totalPrice),
+                                    isPositive: true,
+                                    icon: Icons.receipt_long_outlined,
                                   ),
+                                  onTap: (_) => _showOrderDetails(context, order),
                                 ),
-                              ),
-                              _PaginationFooter(
-                                isLoading: state.isLoadingMore,
-                                hasNext: state.hasNext,
-                              ),
-                            ],
+                              );
+                            },
                           ),
         ),
       ],
