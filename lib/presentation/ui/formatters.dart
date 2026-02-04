@@ -38,16 +38,16 @@ String formatMoneyDynamic(dynamic value) {
 }
 
 String stripNumberFormatting(String raw, {bool allowNegative = false}) {
-  var text = raw.replaceAll(RegExp(r'[^0-9-]'), '');
+  final normalized = _normalizeDigits(raw);
   if (!allowNegative) {
-    return text.replaceAll('-', '');
+    return normalized.replaceAll('-', '');
   }
-  if (text.isEmpty) {
-    return text;
+  if (normalized.isEmpty) {
+    return normalized;
   }
-  final isNegative = text.startsWith('-');
-  text = text.replaceAll('-', '');
-  return isNegative ? '-$text' : text;
+  final isNegative = normalized.startsWith('-');
+  final digits = normalized.replaceAll('-', '');
+  return isNegative ? '-$digits' : digits;
 }
 
 int? parseFormattedInt(String raw, {bool allowNegative = false}) {
@@ -74,7 +74,7 @@ class ThousandsSeparatorInputFormatter extends TextInputFormatter {
     }
 
     final negative = allowNegative && raw.startsWith('-');
-    final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+    final digits = _normalizeDigits(raw).replaceAll('-', '');
     if (digits.isEmpty) {
       if (negative) {
         return const TextEditingValue(
@@ -104,4 +104,41 @@ String _groupDigits(String digits) {
     }
   }
   return buffer.toString().trimRight();
+}
+
+String _normalizeDigits(String raw) {
+  final buffer = StringBuffer();
+  for (final rune in raw.runes) {
+    final char = String.fromCharCode(rune);
+    if (char == '-') {
+      buffer.write('-');
+      continue;
+    }
+    final mapped = _mapDigit(char);
+    if (mapped != null) {
+      buffer.write(mapped);
+    }
+  }
+  return buffer.toString();
+}
+
+String? _mapDigit(String char) {
+  if (char.codeUnitAt(0) >= 48 && char.codeUnitAt(0) <= 57) {
+    return char;
+  }
+  const arabicIndic = '٠١٢٣٤٥٦٧٨٩';
+  const easternArabicIndic = '۰۱۲۳۴۵۶۷۸۹';
+  final indexArabic = arabicIndic.indexOf(char);
+  if (indexArabic != -1) {
+    return indexArabic.toString();
+  }
+  final indexEastern = easternArabicIndic.indexOf(char);
+  if (indexEastern != -1) {
+    return indexEastern.toString();
+  }
+  final parsed = int.tryParse(char);
+  if (parsed != null) {
+    return parsed.toString();
+  }
+  return null;
 }

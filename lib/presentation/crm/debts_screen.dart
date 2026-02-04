@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -70,7 +72,7 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(crmDebtsControllerProvider);
     final activeItems = state.items
-        .where((item) => (item.amount - item.paidAmount) > 0)
+        .where((item) => _hasRemaining(item))
         .toList();
     final nameOptions = activeItems
         .map((item) => item.fullName.trim())
@@ -85,8 +87,7 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
       if (key.isEmpty) {
         continue;
       }
-      final remaining =
-          (item.amount - item.paidAmount) < 0 ? 0 : (item.amount - item.paidAmount);
+      final remaining = _remainingAmount(item);
       totalsByName[key] = (totalsByName[key] ?? 0) + remaining;
     }
     final sortedNames = totalsByName.entries.toList()
@@ -314,10 +315,23 @@ List<_DebtCardView> _mergeNotesIntoDebts(List<CrmDebt> items) {
   return cards;
 }
 
+double _remainingAmount(CrmDebt item) {
+  final remaining = item.amount - item.paidAmount;
+  return remaining <= 0.5 ? 0 : remaining;
+}
+
+bool _hasRemaining(CrmDebt item) {
+  return _remainingAmount(item) > 0;
+}
+
 class _DebtDetailCard extends StatefulWidget {
-  const _DebtDetailCard({required this.card});
+  const _DebtDetailCard({
+    required this.card,
+    this.showProfile = false,
+  });
 
   final _DebtCardView card;
+  final bool showProfile;
 
   @override
   State<_DebtDetailCard> createState() => _DebtDetailCardState();
@@ -348,6 +362,17 @@ class _DebtDetailCardState extends State<_DebtDetailCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (widget.showProfile)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  item.fullName.trim(),
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelSmall
+                      ?.copyWith(color: AppColors.textSecondary),
+                ),
+              ),
             Row(
               children: [
                 Expanded(
@@ -501,7 +526,7 @@ class _AllDebtsByDateSheetState extends ConsumerState<_AllDebtsByDateSheet> {
         .where((item) => _matchesRange(item.createdAt))
         .where(
           (item) =>
-              (item.amount - item.paidAmount) > 0 ||
+              _hasRemaining(item) ||
               (item.amount == 0 && item.note.trim().isNotEmpty),
         )
         .toList()
@@ -514,8 +539,7 @@ class _AllDebtsByDateSheetState extends ConsumerState<_AllDebtsByDateSheet> {
     final totalRemaining = cards.fold<double>(
       0,
       (sum, card) {
-        final remaining = card.debt.amount - card.debt.paidAmount;
-        return sum + (remaining < 0 ? 0 : remaining);
+        return sum + _remainingAmount(card.debt);
       },
     );
 
@@ -567,7 +591,10 @@ class _AllDebtsByDateSheetState extends ConsumerState<_AllDebtsByDateSheet> {
                 ...cards.map(
                   (card) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: _DebtDetailCard(card: card),
+                    child: _DebtDetailCard(
+                      card: card,
+                      showProfile: true,
+                    ),
                   ),
                 ),
             ],
@@ -617,14 +644,196 @@ class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
   bool _isSaving = false;
   bool _isPaying = false;
   bool _isSavingNote = false;
+  bool _showNewDebt = false;
+  bool _showNewNote = false;
+  bool _showPaidDebts = false;
+  bool _isAutoFormattingNote = false;
+  bool _isSyncingAmount = false;
+  Timer? _noteDebounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _noteController.addListener(() => _onNoteChanged(_noteController));
+    _noteOnlyController.addListener(() => _onNoteChanged(_noteOnlyController));
+  }
 
   @override
   void dispose() {
+    _noteDebounce?.cancel();
     _amountController.dispose();
     _noteController.dispose();
     _paidController.dispose();
     _noteOnlyController.dispose();
     super.dispose();
+  }
+
+  void _onNoteChanged(TextEditingController controller) {
+    _noteDebounce?.cancel();
+    _noteDebounce = Timer(const Duration(milliseconds: 180), () {
+      if (!mounted) {
+        return;
+      }
+      _syncAmountFromNote(controller);
+    });
+  }
+
+  void _syncAmountFromNote(TextEditingController controller) {
+    if (_isAutoFormattingNote || _isSyncingAmount) {
+      return;
+    }
+    final text = controller.text;
+    final updatedText = _insertInlineResults(text);
+    if (updatedText != text) {
+      _isAutoFormattingNote = true;
+      controller.value = TextEditingValue(
+        text: updatedText,
+        selection: TextSelection.collapsed(offset: updatedText.length),
+      );
+      _isAutoFormattingNote = false;
+    }
+    final sums = _calculateExpressions(updatedText);
+    if (sums == null || sums <= 0) {
+      return;
+    }
+    final formatted = formatNumber(sums);
+    _isSyncingAmount = true;
+    _amountController.value = TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+    _isSyncingAmount = false;
+  }
+
+  double? _evaluateExpression(String input) {
+    final tokens = _tokenizeExpression(input);
+    if (tokens.isEmpty) {
+      return null;
+    }
+    final output = <String>[];
+    final ops = <String>[];
+    int prec(String op) => (op == '+' || op == '-') ? 1 : 2;
+    for (final token in tokens) {
+      if (_isNumberToken(token)) {
+        output.add(token);
+      } else if (token == '(') {
+        ops.add(token);
+      } else if (token == ')') {
+        while (ops.isNotEmpty && ops.last != '(') {
+          output.add(ops.removeLast());
+        }
+        if (ops.isNotEmpty && ops.last == '(') {
+          ops.removeLast();
+        }
+      } else {
+        while (ops.isNotEmpty &&
+            ops.last != '(' &&
+            prec(ops.last) >= prec(token)) {
+          output.add(ops.removeLast());
+        }
+        ops.add(token);
+      }
+    }
+    while (ops.isNotEmpty) {
+      output.add(ops.removeLast());
+    }
+    final stack = <double>[];
+    for (final token in output) {
+      if (_isNumberToken(token)) {
+        stack.add(double.parse(token));
+      } else {
+        if (stack.length < 2) {
+          return null;
+        }
+        final b = stack.removeLast();
+        final a = stack.removeLast();
+        switch (token) {
+          case '+':
+            stack.add(a + b);
+            break;
+          case '-':
+            stack.add(a - b);
+            break;
+          case '*':
+            stack.add(a * b);
+            break;
+          case '/':
+            stack.add(b == 0 ? 0 : a / b);
+            break;
+        }
+      }
+    }
+    if (stack.length != 1) {
+      return null;
+    }
+    return stack.first;
+  }
+
+  double? _calculateExpressions(String text) {
+    final matches = RegExp(r'([0-9.\s+\-*/()]+)=').allMatches(text);
+    if (matches.isEmpty) {
+      return null;
+    }
+    double total = 0;
+    for (final match in matches) {
+      final expr = match.group(1)?.trim();
+      if (expr == null || expr.isEmpty) {
+        continue;
+      }
+      final result = _evaluateExpression(expr);
+      if (result == null) {
+        continue;
+      }
+      total += result;
+    }
+    return total;
+  }
+
+  String _insertInlineResults(String text) {
+    final regex = RegExp(r'([0-9.\s+\-*/()]+)=(?!\s*\d)');
+    if (!regex.hasMatch(text)) {
+      return text;
+    }
+    return text.replaceAllMapped(regex, (match) {
+      final expr = match.group(1)?.trim() ?? '';
+      final result = _evaluateExpression(expr);
+      if (result == null) {
+        return match.group(0) ?? '';
+      }
+      final formatted = formatNumber(result);
+      return '$expr=$formatted';
+    });
+  }
+
+  List<String> _tokenizeExpression(String input) {
+    final cleaned = input.replaceAll(RegExp(r'[\s,]'), '');
+    if (cleaned.isEmpty) {
+      return const [];
+    }
+    final tokens = <String>[];
+    final buffer = StringBuffer();
+    for (var i = 0; i < cleaned.length; i++) {
+      final ch = cleaned[i];
+      if (RegExp(r'[0-9.]').hasMatch(ch)) {
+        buffer.write(ch);
+        continue;
+      }
+      if (buffer.isNotEmpty) {
+        tokens.add(buffer.toString());
+        buffer.clear();
+      }
+      if (RegExp(r'[+\-*/()]').hasMatch(ch)) {
+        tokens.add(ch);
+      }
+    }
+    if (buffer.isNotEmpty) {
+      tokens.add(buffer.toString());
+    }
+    return tokens;
+  }
+
+  bool _isNumberToken(String token) {
+    return double.tryParse(token) != null;
   }
 
   Future<void> _submit() async {
@@ -724,23 +933,39 @@ class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
       if (debts.isEmpty) {
         return;
       }
-      final targetDebt = debts.firstWhere(
-        (item) => (item.amount - item.paidAmount) > 0,
-        orElse: () => debts.first,
-      );
       final parsed = double.tryParse(amountRaw) ?? 0;
       if (parsed <= 0) {
         return;
       }
-      final nextPaid = targetDebt.paidAmount + parsed;
-      final clamped = nextPaid < 0
-          ? 0
-          : (nextPaid > targetDebt.amount ? targetDebt.amount : nextPaid);
-      await ref.read(crmDebtsControllerProvider.notifier).updatePaidAmount(
-            id: targetDebt.id,
-            paidAmount: clamped.toStringAsFixed(0),
-            isPaid: clamped >= targetDebt.amount,
-          );
+      // Pay debts from oldest to newest.
+      final sortedDebts = List<CrmDebt>.from(debts)
+        ..sort((a, b) {
+          final aDate = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final bDate = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return aDate.compareTo(bDate);
+        });
+      var remainingPayment = parsed;
+      for (final debt in sortedDebts) {
+        final remainingDebt = _remainingAmount(debt);
+        if (remainingDebt <= 0) {
+          continue;
+        }
+        if (remainingPayment <= 0) {
+          break;
+        }
+        final applyAmount =
+            remainingPayment > remainingDebt ? remainingDebt : remainingPayment;
+        final nextPaid = debt.paidAmount + applyAmount;
+        final clamped = nextPaid < 0
+            ? 0
+            : (nextPaid > debt.amount ? debt.amount : nextPaid);
+        await ref.read(crmDebtsControllerProvider.notifier).updatePaidAmount(
+              id: debt.id,
+              paidAmount: clamped.toStringAsFixed(0),
+              isPaid: clamped >= debt.amount,
+            );
+        remainingPayment -= applyAmount;
+      }
       await ref.read(crmDebtsControllerProvider.notifier).load();
       _paidController.clear();
     } finally {
@@ -758,7 +983,7 @@ class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
         .where((item) => item.fullName.trim() == widget.name)
         .where(
           (item) =>
-              (item.amount - item.paidAmount) > 0 ||
+              _hasRemaining(item) ||
               (item.amount == 0 && item.note.trim().isNotEmpty),
         )
         .toList()
@@ -771,10 +996,25 @@ class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
     final totalRemaining = cards.fold<double>(
       0,
       (sum, card) {
-        final remaining = card.debt.amount - card.debt.paidAmount;
-        return sum + (remaining < 0 ? 0 : remaining);
+        return sum + _remainingAmount(card.debt);
       },
     );
+    final paidDebts = state.items
+        .where((item) => item.fullName.trim() == widget.name)
+        .where(
+          (item) =>
+              (!_hasRemaining(item) && item.amount > 0) ||
+              (item.amount == 0 && item.note.trim().isNotEmpty),
+        )
+        .toList()
+      ..sort((a, b) {
+        final aDate = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bDate = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bDate.compareTo(aDate);
+      });
+    final paidCards = _mergeNotesIntoDebts(paidDebts)
+        .where((card) => card.debt.amount > 0 && !_hasRemaining(card.debt))
+        .toList();
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: SafeArea(
@@ -806,62 +1046,155 @@ class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
                     child: _DebtDetailCard(card: card),
                   ),
                 ),
-              const SizedBox(height: 8),
-              Text(
-                'Yangi qarz',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _amountController,
-                decoration: const InputDecoration(
-                  hintText: 'Qarz summasi',
-                ),
-                keyboardType: TextInputType.number,
-                inputFormatters: [ThousandsSeparatorInputFormatter()],
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _noteController,
-                decoration: const InputDecoration(
-                  hintText: 'Izoh (ixtiyoriy)',
-                ),
-              ),
               const SizedBox(height: 12),
-              FilledButton(
-                onPressed: _isSaving ? null : _submit,
-                child: _isSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Saqlash'),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Yangi izoh',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _noteOnlyController,
-                decoration: const InputDecoration(
-                  hintText: 'Izoh',
+              InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => setState(() => _showPaidDebts = !_showPaidDebts),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'To\'langan qarzlar',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                      ),
+                      Icon(
+                        _showPaidDebts ? Icons.expand_less : Icons.expand_more,
+                        color: AppColors.textSecondary,
+                      ),
+                    ],
+                  ),
                 ),
-                maxLines: 2,
               ),
+              if (_showPaidDebts) ...[
+                const SizedBox(height: 8),
+                if (paidCards.isEmpty)
+                  Text(
+                    'To\'langan qarzlar yo\'q',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  )
+                else
+                  ...paidCards.map(
+                    (card) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _DebtDetailCard(card: card),
+                    ),
+                  ),
+              ],
+              const SizedBox(height: 8),
+              InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => setState(() => _showNewDebt = !_showNewDebt),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Yangi qarz',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                      ),
+                      Icon(
+                        _showNewDebt ? Icons.expand_less : Icons.expand_more,
+                        color: AppColors.textSecondary,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (_showNewDebt) ...[
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _amountController,
+                  decoration: const InputDecoration(
+                    hintText: 'Qarz summasi',
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [ThousandsSeparatorInputFormatter()],
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _noteController,
+                  decoration: const InputDecoration(
+                    hintText: 'Izoh (ixtiyoriy)',
+                  ),
+                  maxLines: 3,
+                  keyboardType: TextInputType.multiline,
+                  textInputAction: TextInputAction.newline,
+                ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: _isSaving ? null : _submit,
+                  child: _isSaving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Saqlash'),
+                ),
+              ],
               const SizedBox(height: 12),
-              FilledButton(
-                onPressed: _isSavingNote ? null : _submitNoteOnly,
-                child: _isSavingNote
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Izohni saqlash'),
+              InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => setState(() => _showNewNote = !_showNewNote),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Yangi izoh',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                      ),
+                      Icon(
+                        _showNewNote ? Icons.expand_less : Icons.expand_more,
+                        color: AppColors.textSecondary,
+                      ),
+                    ],
+                  ),
+                ),
               ),
+              if (_showNewNote) ...[
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _noteOnlyController,
+                  decoration: const InputDecoration(
+                    hintText: 'Izoh',
+                  ),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: _isSavingNote ? null : _submitNoteOnly,
+                  child: _isSavingNote
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Izohni saqlash'),
+                ),
+              ],
               const SizedBox(height: 16),
               Text(
                 'To\'lov qo\'shish',
