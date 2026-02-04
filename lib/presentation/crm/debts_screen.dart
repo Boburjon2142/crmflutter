@@ -291,107 +291,152 @@ class _DebtorCards extends StatelessWidget {
   }
 }
 
-class _DebtDetailCard extends StatelessWidget {
-  const _DebtDetailCard({required this.item});
+class _DebtCardView {
+  _DebtCardView({
+    required this.debt,
+    List<CrmDebt>? notes,
+  }) : notes = notes ?? <CrmDebt>[];
 
-  final CrmDebt item;
+  final CrmDebt debt;
+  final List<CrmDebt> notes;
+}
+
+List<_DebtCardView> _mergeNotesIntoDebts(List<CrmDebt> items) {
+  final cards = <_DebtCardView>[];
+  for (final item in items) {
+    final isNoteOnly = item.amount == 0 && item.note.trim().isNotEmpty;
+    if (isNoteOnly && cards.isNotEmpty) {
+      cards.last.notes.add(item);
+      continue;
+    }
+    cards.add(_DebtCardView(debt: item));
+  }
+  return cards;
+}
+
+class _DebtDetailCard extends StatefulWidget {
+  const _DebtDetailCard({required this.card});
+
+  final _DebtCardView card;
+
+  @override
+  State<_DebtDetailCard> createState() => _DebtDetailCardState();
+}
+
+class _DebtDetailCardState extends State<_DebtDetailCard> {
+  bool _showDetails = false;
 
   @override
   Widget build(BuildContext context) {
-    final remaining = item.amount - item.paidAmount;
+    final item = widget.card.debt;
+    final notes = widget.card.notes;
     final isNoteOnly = item.amount == 0;
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  isNoteOnly ? 'Izoh' : formatMoney(item.amount),
-                  style: Theme.of(context).textTheme.titleSmall,
+    final hasNote = item.note.trim().isNotEmpty;
+    final hasProducts = item.orderItems.isNotEmpty;
+    final hasDetails = hasNote || notes.isNotEmpty || hasProducts;
+    final showDetails = _showDetails;
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: hasDetails ? () => setState(() => _showDetails = !_showDetails) : null,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    isNoteOnly ? 'Izoh' : formatMoney(item.amount),
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
                 ),
-              ),
+                Text(
+                  _formatDebtDate(item.createdAt),
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelSmall
+                      ?.copyWith(color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+            if (hasNote && showDetails) ...[
+              const SizedBox(height: 8),
               Text(
-                _formatDebtDate(item.createdAt),
+                item.note,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: AppColors.textSecondary),
+              ),
+            ],
+            if (notes.isNotEmpty && showDetails) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Izohlar',
                 style: Theme.of(context)
                     .textTheme
                     .labelSmall
                     ?.copyWith(color: AppColors.textSecondary),
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (item.note.trim().isNotEmpty)
-            Text(
-              item.note,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: AppColors.textSecondary),
-            ),
-          if (item.note.trim().isNotEmpty) const SizedBox(height: 6),
-          if (item.orderItems.isNotEmpty) ...[
-            Text(
-              'Mahsulotlar',
-              style: Theme.of(context)
-                  .textTheme
-                  .labelSmall
-                  ?.copyWith(color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 6),
-            ...item.orderItems.map(
-              (orderItem) => Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        orderItem.title,
-                        style: Theme.of(context).textTheme.bodySmall,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${orderItem.quantity} x ${formatMoney(orderItem.price)}',
-                      style: Theme.of(context)
-                          .textTheme
-                          .labelSmall
-                          ?.copyWith(color: AppColors.textSecondary),
-                    ),
-                  ],
+              const SizedBox(height: 6),
+              ...notes.map(
+                (noteItem) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    noteItem.note,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: AppColors.textSecondary),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 6),
+            ],
+            if (hasProducts && showDetails) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Mahsulotlar',
+                style: Theme.of(context)
+                    .textTheme
+                    .labelSmall
+                    ?.copyWith(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 6),
+              ...item.orderItems.map(
+                (orderItem) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          orderItem.title,
+                          style: Theme.of(context).textTheme.bodySmall,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${orderItem.quantity} x ${formatMoney(orderItem.price)}',
+                        style: Theme.of(context)
+                            .textTheme
+                            .labelSmall
+                            ?.copyWith(color: AppColors.textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
-          if (!isNoteOnly) ...[
-            Text(
-              'To\'langan: ${formatMoney(item.paidAmount)}',
-              style: Theme.of(context)
-                  .textTheme
-                  .labelSmall
-                  ?.copyWith(color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Qoldiq: ${formatMoney(remaining < 0 ? 0 : remaining)}',
-              style: Theme.of(context)
-                  .textTheme
-                  .labelSmall
-                  ?.copyWith(color: AppColors.textSecondary),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
@@ -465,13 +510,11 @@ class _AllDebtsByDateSheetState extends ConsumerState<_AllDebtsByDateSheet> {
         final bDate = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
         return bDate.compareTo(aDate);
       });
-    final totalRemaining = debts.fold<double>(
+    final cards = _mergeNotesIntoDebts(debts);
+    final totalRemaining = cards.fold<double>(
       0,
-      (sum, item) {
-        if (item.amount == 0) {
-          return sum;
-        }
-        final remaining = item.amount - item.paidAmount;
+      (sum, card) {
+        final remaining = card.debt.amount - card.debt.paidAmount;
         return sum + (remaining < 0 ? 0 : remaining);
       },
     );
@@ -515,16 +558,16 @@ class _AllDebtsByDateSheetState extends ConsumerState<_AllDebtsByDateSheet> {
                 ],
               ),
               const SizedBox(height: 16),
-              if (debts.isEmpty)
+              if (cards.isEmpty)
                 Text(
                   'Qarzlar topilmadi',
                   style: Theme.of(context).textTheme.bodyMedium,
                 )
               else
-                ...debts.map(
-                  (item) => Padding(
+                ...cards.map(
+                  (card) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: _DebtDetailCard(item: item),
+                    child: _DebtDetailCard(card: card),
                   ),
                 ),
             ],
@@ -724,13 +767,11 @@ class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
         final bDate = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
         return bDate.compareTo(aDate);
       });
-    final totalRemaining = debts.fold<double>(
+    final cards = _mergeNotesIntoDebts(debts);
+    final totalRemaining = cards.fold<double>(
       0,
-      (sum, item) {
-        if (item.amount == 0) {
-          return sum;
-        }
-        final remaining = item.amount - item.paidAmount;
+      (sum, card) {
+        final remaining = card.debt.amount - card.debt.paidAmount;
         return sum + (remaining < 0 ? 0 : remaining);
       },
     );
@@ -753,44 +794,19 @@ class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
                     ?.copyWith(color: AppColors.textSecondary),
               ),
               const SizedBox(height: 16),
-              if (debts.isEmpty)
+              if (cards.isEmpty)
                 Text(
                   'Qarzdor topilmadi',
                   style: Theme.of(context).textTheme.bodyMedium,
                 )
               else
-                ...debts.map(
-                  (item) => Padding(
+                ...cards.map(
+                  (card) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: _DebtDetailCard(item: item),
+                    child: _DebtDetailCard(card: card),
                   ),
                 ),
               const SizedBox(height: 8),
-              Text(
-                'To\'lov qo\'shish',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _paidController,
-                decoration: const InputDecoration(
-                  hintText: 'To\'langan summa',
-                ),
-                keyboardType: TextInputType.number,
-                inputFormatters: [ThousandsSeparatorInputFormatter()],
-              ),
-              const SizedBox(height: 8),
-              FilledButton(
-                onPressed: _isPaying ? null : _submitPayment,
-                child: _isPaying
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('To\'lovni saqlash'),
-              ),
-              const SizedBox(height: 12),
               Text(
                 'Yangi qarz',
                 style: Theme.of(context).textTheme.titleSmall,
@@ -845,6 +861,31 @@ class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Text('Izohni saqlash'),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'To\'lov qo\'shish',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _paidController,
+                decoration: const InputDecoration(
+                  hintText: 'To\'langan summa',
+                ),
+                keyboardType: TextInputType.number,
+                inputFormatters: [ThousandsSeparatorInputFormatter()],
+              ),
+              const SizedBox(height: 8),
+              FilledButton(
+                onPressed: _isPaying ? null : _submitPayment,
+                child: _isPaying
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('To\'lovni saqlash'),
               ),
             ],
           ),

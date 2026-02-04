@@ -9,23 +9,12 @@ import '../data/auth/datasources/auth_local_data_source.dart';
 import '../data/auth/datasources/auth_remote_data_source.dart';
 import '../data/auth/interceptors/auth_interceptor.dart';
 import '../data/auth/repositories/auth_repository_impl.dart';
-import '../data/authors/datasources/author_remote_data_source.dart';
-import '../data/authors/repositories/author_repository_impl.dart';
-import '../data/catalog/datasources/catalog_remote_data_source.dart';
-import '../data/catalog/repositories/catalog_repository_impl.dart';
 import '../data/crm/datasources/crm_remote_data_source.dart';
 import '../data/crm/repositories/crm_repository_impl.dart';
-import '../data/home/datasources/home_remote_data_source.dart';
-import '../data/home/repositories/home_repository_impl.dart';
 import '../domain/auth/repositories/auth_repository.dart';
 import '../domain/auth/usecases/get_saved_token.dart';
 import '../domain/auth/usecases/login.dart';
 import '../domain/auth/usecases/logout.dart';
-import '../domain/authors/repositories/author_repository.dart';
-import '../domain/authors/usecases/get_authors.dart';
-import '../domain/catalog/repositories/catalog_repository.dart';
-import '../domain/catalog/usecases/get_books.dart';
-import '../domain/catalog/usecases/get_categories.dart';
 import '../domain/crm/repositories/crm_repository.dart';
 import '../domain/crm/usecases/adjust_inventory.dart';
 import '../domain/crm/usecases/create_debt.dart';
@@ -39,13 +28,8 @@ import '../domain/crm/usecases/get_orders.dart';
 import '../domain/crm/usecases/get_report.dart';
 import '../domain/crm/usecases/search.dart';
 import '../domain/crm/usecases/update_debt_paid.dart';
-import '../domain/home/repositories/home_repository.dart';
-import '../domain/home/usecases/get_home.dart';
 import 'controllers/auth_controller.dart';
-import 'controllers/authors_controller.dart';
 import 'controllers/base_url_controller.dart';
-import 'controllers/books_controller.dart';
-import 'controllers/categories_controller.dart';
 import 'controllers/crm_books_controller.dart';
 import 'controllers/crm_dashboard_controller.dart';
 import 'controllers/crm_debts_controller.dart';
@@ -54,7 +38,6 @@ import 'controllers/crm_orders_controller.dart';
 import 'controllers/crm_pos_controller.dart';
 import 'controllers/crm_report_controller.dart';
 import 'controllers/crm_search_controller.dart';
-import 'controllers/home_controller.dart';
 
 final secureStorageProvider = Provider<FlutterSecureStorage>((ref) {
   return const FlutterSecureStorage();
@@ -124,71 +107,6 @@ final authControllerProvider =
     logout: ref.read(logoutUseCaseProvider),
     getSavedToken: ref.read(getSavedTokenUseCaseProvider),
   )..checkAuth();
-});
-
-final authorRemoteDataSourceProvider = Provider<AuthorRemoteDataSource>((ref) {
-  return AuthorRemoteDataSource(ref.read(apiDioProvider));
-});
-
-final authorRepositoryProvider = Provider<AuthorRepository>((ref) {
-  return AuthorRepositoryImpl(ref.read(authorRemoteDataSourceProvider));
-});
-
-final getAuthorsUseCaseProvider = Provider<GetAuthors>((ref) {
-  return GetAuthors(ref.read(authorRepositoryProvider));
-});
-
-final authorsControllerProvider =
-    StateNotifierProvider<AuthorsController, AuthorsState>((ref) {
-  return AuthorsController(getAuthors: ref.read(getAuthorsUseCaseProvider));
-});
-
-final catalogRemoteDataSourceProvider = Provider<CatalogRemoteDataSource>((ref) {
-  return CatalogRemoteDataSource(ref.read(apiDioProvider));
-});
-
-final catalogRepositoryProvider = Provider<CatalogRepository>((ref) {
-  return CatalogRepositoryImpl(ref.read(catalogRemoteDataSourceProvider));
-});
-
-final getCategoriesUseCaseProvider = Provider<GetCategories>((ref) {
-  return GetCategories(ref.read(catalogRepositoryProvider));
-});
-
-final getBooksUseCaseProvider = Provider<GetBooks>((ref) {
-  return GetBooks(ref.read(catalogRepositoryProvider));
-});
-
-final categoriesControllerProvider =
-    StateNotifierProvider<CategoriesController, CategoriesState>((ref) {
-  return CategoriesController(getCategories: ref.read(getCategoriesUseCaseProvider));
-});
-
-final booksControllerProvider = StateNotifierProvider.family<
-    BooksController,
-    BooksState,
-    BooksQuery>((ref, query) {
-  return BooksController(
-    getBooks: ref.read(getBooksUseCaseProvider),
-    query: query,
-  );
-});
-
-final homeRemoteDataSourceProvider = Provider<HomeRemoteDataSource>((ref) {
-  return HomeRemoteDataSource(ref.read(apiDioProvider));
-});
-
-final homeRepositoryProvider = Provider<HomeRepository>((ref) {
-  return HomeRepositoryImpl(ref.read(homeRemoteDataSourceProvider));
-});
-
-final getHomeUseCaseProvider = Provider<GetHome>((ref) {
-  return GetHome(ref.read(homeRepositoryProvider));
-});
-
-final homeControllerProvider =
-    StateNotifierProvider<HomeController, HomeState>((ref) {
-  return HomeController(getHome: ref.read(getHomeUseCaseProvider));
 });
 
 final crmRemoteDataSourceProvider = Provider<CrmRemoteDataSource>((ref) {
