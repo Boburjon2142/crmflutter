@@ -119,6 +119,27 @@ class CrmRemoteDataSource {
     }
   }
 
+  Future<DebtModel> updateDebtNote({
+    required int id,
+    required String note,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        'crm/debts/note/',
+        data: {
+          'debt_id': id,
+          'note': note,
+        },
+      );
+      return DebtModel.fromJson(response.data ?? {});
+    } on DioException catch (error) {
+      throw ApiException(
+        error.response?.statusMessage ?? 'Failed to update debt note',
+        statusCode: error.response?.statusCode,
+      );
+    }
+  }
+
   Future<List<ExpenseModel>> getExpenses() async {
     try {
       final response = await _dio.get<List<dynamic>>('crm/expenses/');

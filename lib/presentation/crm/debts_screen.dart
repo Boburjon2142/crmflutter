@@ -23,6 +23,7 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
   final _noteController = TextEditingController();
   final _scrollController = ScrollController();
   int _visibleCount = 30;
+  bool _showClosedDebtors = false;
 
   @override
   void initState() {
@@ -94,6 +95,25 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
       ..sort((a, b) => b.value.compareTo(a.value));
     final visibleNames = sortedNames.take(_visibleCount).toList();
     final totalDebt = sortedNames.fold<double>(0, (sum, entry) => sum + entry.value);
+    final remainingByName = <String, double>{};
+    final amountByName = <String, double>{};
+    for (final item in state.items) {
+      final name = item.fullName.trim();
+      if (name.isEmpty) {
+        continue;
+      }
+      remainingByName[name] = (remainingByName[name] ?? 0) + _remainingAmount(item);
+      amountByName[name] = (amountByName[name] ?? 0) + item.amount;
+    }
+    final closedDebtorNames = remainingByName.entries
+        .where((entry) => entry.value <= 0)
+        .where((entry) => (amountByName[entry.key] ?? 0) > 0)
+        .map((entry) => entry.key)
+        .toList()
+      ..sort();
+    final closedDebtorCards = closedDebtorNames
+        .map((name) => MapEntry<String, double>(name, 0))
+        .toList();
 
     return Scaffold(
       floatingActionButton: FloatingActionButton(
@@ -124,6 +144,48 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
               _showDebtDetails(context, name, debtsForName);
             },
           ),
+          const SizedBox(height: 12),
+          InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => setState(() => _showClosedDebtors = !_showClosedDebtors),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Yopilgan qarzdorlar',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  Icon(
+                    _showClosedDebtors ? Icons.expand_less : Icons.expand_more,
+                    color: AppColors.textSecondary,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_showClosedDebtors) ...[
+            const SizedBox(height: 12),
+            if (closedDebtorCards.isEmpty)
+              const Text('Yopilgan qarzdorlar yo\'q')
+            else
+              _DebtorCards(
+                items: closedDebtorCards,
+                onTap: (name) {
+                  final debtsForName = state.items
+                      .where((item) => item.fullName.trim() == name)
+                      .toList();
+                  _showDebtDetails(context, name, debtsForName);
+                },
+              ),
+          ],
           const SizedBox(height: 16),
           if (state.isLoading && state.items.isEmpty)
             const Center(child: CircularProgressIndicator())
@@ -329,10 +391,12 @@ class _DebtDetailCard extends StatefulWidget {
   const _DebtDetailCard({
     required this.card,
     this.showProfile = false,
+    this.onEditNote,
   });
 
   final _DebtCardView card;
   final bool showProfile;
+  final ValueChanged<CrmDebt>? onEditNote;
 
   @override
   State<_DebtDetailCard> createState() => _DebtDetailCardState();
@@ -378,7 +442,7 @@ class _DebtDetailCardState extends State<_DebtDetailCard> {
               children: [
                 Expanded(
                   child: Text(
-                    isNoteOnly ? 'Izoh' : formatMoney(item.amount),
+                    isNoteOnly ? 'Izoh' : formatMoney(_remainingAmount(item)),
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
@@ -393,12 +457,27 @@ class _DebtDetailCardState extends State<_DebtDetailCard> {
             ),
             if (hasNote && showDetails) ...[
               const SizedBox(height: 8),
-              Text(
-                item.note,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: AppColors.textSecondary),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      item.note,
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: AppColors.textSecondary),
+                    ),
+                  ),
+                  if (widget.onEditNote != null)
+                    IconButton(
+                      onPressed: () => widget.onEditNote!(item),
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      visualDensity: VisualDensity.compact,
+                      color: AppColors.textSecondary,
+                      tooltip: 'Izohni tahrirlash',
+                    ),
+                ],
               ),
             ],
             if (notes.isNotEmpty && showDetails) ...[
@@ -414,12 +493,27 @@ class _DebtDetailCardState extends State<_DebtDetailCard> {
               ...notes.map(
                 (noteItem) => Padding(
                   padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    noteItem.note,
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: AppColors.textSecondary),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          noteItem.note,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(color: AppColors.textSecondary),
+                        ),
+                      ),
+                      if (widget.onEditNote != null)
+                        IconButton(
+                          onPressed: () => widget.onEditNote!(noteItem),
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          visualDensity: VisualDensity.compact,
+                          color: AppColors.textSecondary,
+                          tooltip: 'Izohni tahrirlash',
+                        ),
+                    ],
                   ),
                 ),
               ),
@@ -642,14 +736,17 @@ class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
   final _noteController = TextEditingController();
   final _paidController = TextEditingController();
   final _noteOnlyController = TextEditingController();
+  final _editNoteController = TextEditingController();
   bool _isSaving = false;
   bool _isPaying = false;
   bool _isSavingNote = false;
+  bool _isUpdatingNote = false;
   bool _showNewDebt = false;
   bool _showNewNote = false;
   bool _showPaidDebts = false;
   bool _isAutoFormattingNote = false;
   bool _isSyncingAmount = false;
+  int? _editingDebtId;
   Timer? _noteDebounce;
 
   @override
@@ -666,6 +763,7 @@ class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
     _noteController.dispose();
     _paidController.dispose();
     _noteOnlyController.dispose();
+    _editNoteController.dispose();
     super.dispose();
   }
 
@@ -976,6 +1074,38 @@ class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
     }
   }
 
+  void _startEditDebtNote(CrmDebt debt) {
+    setState(() {
+      _editingDebtId = debt.id;
+      _editNoteController.text = debt.note;
+    });
+  }
+
+  Future<void> _submitEditedNote() async {
+    final id = _editingDebtId;
+    if (id == null) {
+      return;
+    }
+    setState(() => _isUpdatingNote = true);
+    try {
+      await ref.read(crmDebtsControllerProvider.notifier).updateNote(
+            id: id,
+            note: _editNoteController.text.trim(),
+          );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _editingDebtId = null;
+        _editNoteController.clear();
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isUpdatingNote = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
@@ -1044,9 +1174,54 @@ class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
                 ...cards.map(
                   (card) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: _DebtDetailCard(card: card),
+                    child: _DebtDetailCard(
+                      card: card,
+                      onEditNote: _startEditDebtNote,
+                    ),
                   ),
                 ),
+              if (_editingDebtId != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Izohni tahrirlash',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _editNoteController,
+                  decoration: const InputDecoration(hintText: 'Izoh'),
+                  maxLines: 4,
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _isUpdatingNote
+                            ? null
+                            : () => setState(() {
+                                  _editingDebtId = null;
+                                  _editNoteController.clear();
+                                }),
+                        child: const Text('Bekor qilish'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _isUpdatingNote ? null : _submitEditedNote,
+                        child: _isUpdatingNote
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('Saqlash'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 12),
               InkWell(
                 borderRadius: BorderRadius.circular(16),
@@ -1085,7 +1260,10 @@ class _DebtDetailsSheetState extends ConsumerState<_DebtDetailsSheet> {
                   ...paidCards.map(
                     (card) => Padding(
                       padding: const EdgeInsets.only(bottom: 12),
-                      child: _DebtDetailCard(card: card),
+                      child: _DebtDetailCard(
+                        card: card,
+                        onEditNote: _startEditDebtNote,
+                      ),
                     ),
                   ),
               ],

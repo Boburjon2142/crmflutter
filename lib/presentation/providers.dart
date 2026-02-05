@@ -27,6 +27,7 @@ import '../domain/crm/usecases/get_expenses.dart';
 import '../domain/crm/usecases/get_orders.dart';
 import '../domain/crm/usecases/get_report.dart';
 import '../domain/crm/usecases/search.dart';
+import '../domain/crm/usecases/update_debt_note.dart';
 import '../domain/crm/usecases/update_debt_paid.dart';
 import 'controllers/auth_controller.dart';
 import 'controllers/base_url_controller.dart';
@@ -137,6 +138,10 @@ final updateDebtPaidUseCaseProvider = Provider<UpdateDebtPaid>((ref) {
   return UpdateDebtPaid(ref.read(crmRepositoryProvider));
 });
 
+final updateDebtNoteUseCaseProvider = Provider<UpdateDebtNote>((ref) {
+  return UpdateDebtNote(ref.read(crmRepositoryProvider));
+});
+
 final getExpensesUseCaseProvider = Provider<GetExpenses>((ref) {
   return GetExpenses(ref.read(crmRepositoryProvider));
 });
@@ -186,6 +191,7 @@ final crmDebtsControllerProvider =
     getDebts: ref.read(getDebtsUseCaseProvider),
     createDebt: ref.read(createDebtUseCaseProvider),
     updateDebtPaid: ref.read(updateDebtPaidUseCaseProvider),
+    updateDebtNote: ref.read(updateDebtNoteUseCaseProvider),
   );
 });
 

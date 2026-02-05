@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/crm/entities/debt.dart';
 import '../../domain/crm/usecases/create_debt.dart';
 import '../../domain/crm/usecases/get_debts.dart';
+import '../../domain/crm/usecases/update_debt_note.dart';
 import '../../domain/crm/usecases/update_debt_paid.dart';
 
 class CrmDebtsState {
@@ -38,14 +39,17 @@ class CrmDebtsController extends StateNotifier<CrmDebtsState> {
     required GetDebts getDebts,
     required CreateDebt createDebt,
     required UpdateDebtPaid updateDebtPaid,
+    required UpdateDebtNote updateDebtNote,
   })  : _getDebts = getDebts,
         _createDebt = createDebt,
         _updateDebtPaid = updateDebtPaid,
+        _updateDebtNote = updateDebtNote,
         super(const CrmDebtsState(items: []));
 
   final GetDebts _getDebts;
   final CreateDebt _createDebt;
   final UpdateDebtPaid _updateDebtPaid;
+  final UpdateDebtNote _updateDebtNote;
 
   Future<void> load() async {
     state = state.copyWith(isLoading: true, errorMessage: null);
@@ -92,6 +96,22 @@ class CrmDebtsController extends StateNotifier<CrmDebtsState> {
         paidAmount: paidAmount,
         isPaid: isPaid,
       );
+      final items = state.items
+          .map((item) => item.id == id ? updated : item)
+          .toList();
+      state = state.copyWith(items: items);
+    } catch (error) {
+      state = state.copyWith(errorMessage: error.toString());
+    }
+  }
+
+  Future<void> updateNote({
+    required int id,
+    required String note,
+  }) async {
+    state = state.copyWith(errorMessage: null);
+    try {
+      final updated = await _updateDebtNote(id: id, note: note);
       final items = state.items
           .map((item) => item.id == id ? updated : item)
           .toList();
