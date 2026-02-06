@@ -17,6 +17,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   TextEditingController? _bookController;
   FocusNode? _bookFocusNode;
   final _deltaController = TextEditingController();
+  bool _isSaving = false;
+  DateTime _lastQueryTime = DateTime.fromMillisecondsSinceEpoch(0);
+  String _lastQuery = '';
 
   @override
   void initState() {
@@ -38,18 +41,25 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     final delta =
         parseFormattedInt(_deltaController.text.trim(), allowNegative: true) ??
             0;
-    if (_selectedId == null || delta == 0) {
+    if (_selectedId == null || delta == 0 || _isSaving) {
       return;
     }
-    await ref.read(adjustInventoryUseCaseProvider).call(
-          bookId: _selectedId!,
-          delta: delta,
-          note: null,
-        );
-    _deltaController.clear();
-    _selectedId = null;
-    _bookController?.clear();
-    await ref.read(crmBooksControllerProvider(null).notifier).load();
+    setState(() => _isSaving = true);
+    try {
+      await ref.read(adjustInventoryUseCaseProvider).call(
+            bookId: _selectedId!,
+            delta: delta,
+            note: null,
+          );
+      _deltaController.clear();
+      _selectedId = null;
+      _bookController?.clear();
+      await ref.read(crmBooksControllerProvider(null).notifier).load();
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
   }
 
   @override
@@ -105,10 +115,25 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                       if (query.isEmpty) {
                         return const Iterable<Book>.empty();
                       }
-                      return state.items.where((book) {
-                        return book.title.toLowerCase().contains(query) ||
-                            (book.barcode ?? '').toLowerCase().contains(query);
-                      });
+                      final now = DateTime.now();
+                      if (_lastQuery == query &&
+                          now.difference(_lastQueryTime).inMilliseconds < 150) {
+                        return const Iterable<Book>.empty();
+                      }
+                      _lastQuery = query;
+                      _lastQueryTime = now;
+                      final results = <Book>[];
+                      for (final book in state.items) {
+                        if (results.length >= 30) {
+                          break;
+                        }
+                        final title = book.title.toLowerCase();
+                        final barcode = (book.barcode ?? '').toLowerCase();
+                        if (title.contains(query) || barcode.contains(query)) {
+                          results.add(book);
+                        }
+                      }
+                      return results;
                     },
                     onSelected: (book) {
                       setState(() => _selectedId = book.id);
@@ -123,6 +148,10 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                           hintText: 'Kitob nomini kiriting',
                         ),
                         onChanged: (value) {
+                          if (value.trim().length < 2) {
+                            setState(() => _selectedId = null);
+                            return;
+                          }
                           final match = state.items
                               .where((book) =>
                                   book.title.toLowerCase() ==
@@ -187,8 +216,14 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                   ),
                   const SizedBox(height: 12),
                   FilledButton(
-                    onPressed: state.isLoading ? null : _save,
-                    child: const Text('Saqlash'),
+                    onPressed: state.isLoading || _isSaving ? null : _save,
+                    child: _isSaving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Saqlash'),
                   ),
                 ],
               ),
@@ -232,20 +267,26 @@ class _InventoryTable extends StatelessWidget {
               ],
             ),
             const Divider(),
-            ...items.map(
-              (book) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Row(
-                  children: [
-                    Expanded(flex: 3, child: Text(book.title)),
-                    Expanded(
-                      flex: 3,
-                      child: Text(book.barcode ?? '-'),
-                    ),
-                    Expanded(child: Text(formatNumber(book.stockQuantity))),
-                  ],
-                ),
-              ),
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final book = items[index];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    children: [
+                      Expanded(flex: 3, child: Text(book.title)),
+                      Expanded(
+                        flex: 3,
+                        child: Text(book.barcode ?? '-'),
+                      ),
+                      Expanded(child: Text(formatNumber(book.stockQuantity))),
+                    ],
+                  ),
+                );
+              },
             ),
           ],
         ),

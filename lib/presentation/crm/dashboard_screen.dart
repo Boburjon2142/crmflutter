@@ -4,12 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/crm/entities/dashboard.dart';
 import '../../theme/app_theme.dart';
 import '../controllers/crm_dashboard_controller.dart';
+import '../controllers/crm_orders_controller.dart';
 import '../providers.dart';
 import '../ui/action_button.dart';
 import '../ui/balance_card.dart';
 import '../ui/chart_card.dart';
 import '../ui/formatters.dart';
 import '../ui/section_header.dart';
+import '../ui/transaction_list.dart';
 import '../ui/wallet_card_carousel.dart';
 import 'top_books_screen.dart';
 
@@ -59,6 +61,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             title: 'Bugungi tushum',
             amount: formatMoney(data.revenueToday),
             subtitle: 'Haftalik buyurtmalar: ${data.weeklyOrders}',
+            onTap: () => _showTodayOrders(context),
           ),
           const SizedBox(height: AppSpacing.xl),
           _ChartCard(hourly: data.hourly),
@@ -90,6 +93,137 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 }
 
+Future<void> _showTodayOrders(BuildContext context) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: AppColors.background,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (context) => const _TodayOrdersSheet(),
+  );
+}
+
+class _TodayOrdersSheet extends ConsumerStatefulWidget {
+  const _TodayOrdersSheet();
+
+  @override
+  ConsumerState<_TodayOrdersSheet> createState() => _TodayOrdersSheetState();
+}
+
+class _TodayOrdersSheetState extends ConsumerState<_TodayOrdersSheet> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() {
+      ref
+          .read(crmOrdersControllerProvider(const CrmOrdersQuery()).notifier)
+          .loadInitial();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(
+      crmOrdersControllerProvider(const CrmOrdersQuery()),
+    );
+    final today = _toTashkentTime(DateTime.now());
+    final todayOrders = state.items.where((order) {
+      final created = order.createdAt;
+      if (created == null) {
+        return false;
+      }
+      final local = _toTashkentTime(created);
+      return local.year == today.year &&
+          local.month == today.month &&
+          local.day == today.day;
+    }).toList()
+      ..sort((a, b) {
+        final aDate = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bDate = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bDate.compareTo(aDate);
+      });
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Bugungi buyurtmalar',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _formatDateLabel(today),
+                style: Theme.of(context)
+                    .textTheme
+                    .labelMedium
+                    ?.copyWith(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              if (state.isLoading && state.items.isEmpty)
+                const Center(child: CircularProgressIndicator())
+              else if (state.errorMessage != null && state.items.isEmpty)
+                Text(state.errorMessage!)
+              else if (todayOrders.isEmpty)
+                const Text('Bugungi buyurtmalar yo\'q')
+              else
+                ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: todayOrders.length,
+                  itemBuilder: (context, index) {
+                    final order = todayOrders[index];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                      child: TransactionRow(
+                        data: TransactionRowData(
+                          title: order.fullName,
+                          subtitle:
+                              '${order.orderSource} • ${_formatDate(order.createdAt)}',
+                          amount: formatMoney(order.totalPrice),
+                          isPositive: true,
+                          icon: Icons.receipt_long_outlined,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _formatDateLabel(DateTime value) {
+  final two = (int v) => v.toString().padLeft(2, '0');
+  return '${value.year}-${two(value.month)}-${two(value.day)}';
+}
+
+String _formatDate(DateTime? value) {
+  if (value == null) {
+    return '';
+  }
+  final local = _toTashkentTime(value);
+  final two = (int v) => v.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+}
+
+DateTime _toTashkentTime(DateTime value) {
+  if (value.isUtc) {
+    return value.add(const Duration(hours: 5));
+  }
+  return value;
+}
+
 class _ChartCard extends StatelessWidget {
   const _ChartCard({required this.hourly});
 
@@ -105,6 +239,7 @@ class _ChartCard extends StatelessWidget {
     return ChartCard(
       title: 'Soatlik tushum',
       subtitle: 'Bugun 08:00-20:00',
+      onTap: () => _showHourlyDetails(context, hourly),
       child: Container(
         height: 260,
         decoration: BoxDecoration(
@@ -152,6 +287,88 @@ class _ChartCard extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<void> _showHourlyDetails(
+  BuildContext context,
+  List<CrmHourly> hourly,
+) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: AppColors.background,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (context) {
+      return Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Soatlik tushum',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Bugun 08:00-20:00',
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelMedium
+                      ?.copyWith(color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: 16),
+                if (hourly.isEmpty)
+                  const Text('Ma\'lumot yo\'q')
+                else
+                  ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: hourly.length,
+                    itemBuilder: (context, index) {
+                      final item = hourly[index];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AppColors.surface,
+                            borderRadius: BorderRadius.circular(AppRadii.lg),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  item.label,
+                                  style: Theme.of(context).textTheme.titleSmall,
+                                ),
+                              ),
+                              Text(
+                                formatMoney(item.total),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelLarge
+                                    ?.copyWith(color: AppColors.accentPrimary),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class _BarsPainter extends CustomPainter {
